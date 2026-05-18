@@ -198,9 +198,25 @@ const sidebars: SidebarsConfig = {
           ],
         },
         {
-          type: 'doc',
-          id: 'guides/guides/integrations',
+          type: 'category',
           label: 'Integrations',
+          collapsed: true,
+          collapsible: true,
+          items: [
+            {
+              type: 'category',
+              label: 'STS',
+              collapsed: true,
+              collapsible: true,
+              items: [
+                {
+                  type: 'doc',
+                  id: 'guides/guides/integrations/sts/apisix',
+                  label: 'Apache APISIX',
+                },
+              ],
+            },
+          ],
         },
         {
           type: 'doc',

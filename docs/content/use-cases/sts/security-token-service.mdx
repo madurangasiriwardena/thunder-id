@@ -1,0 +1,113 @@
+---
+title: Security Token Service
+description: Identify when to use Thunder as a Security Token Service and review the supported use case scope.
+sidebar_position: 1
+---
+
+# Security Token Service
+
+A Security Token Service (STS) is the trust engine that lets applications exchange, transform, and broker identities across any domain. It receives a token from a caller, validates it, and issues a new token scoped to the target service, API, or agent — without requiring each service to implement its own token logic.
+
+Thunder provides STS capabilities based on OAuth 2.0 Token Exchange (RFC 8693). You can issue audience-specific tokens, reduce token scope for least-privilege access, broker identities across identity providers, and secure AI agent interactions — without building token transformation infrastructure from scratch.
+
+## When to Choose This Pattern
+
+Choose this pattern if your platform follows a service-oriented or microservices architecture and you need a trusted authority to issue, transform, and validate tokens across service boundaries.
+
+If your platform has services that call other services, APIs that accept tokens from multiple upstream callers, workflows where a service must act on behalf of a user, or AI agents that need scoped credentials before performing actions, your platform requires STS capabilities.
+
+## Use Case Scope
+
+From a platform engineer's view, you need token exchange capabilities that span the full service interaction lifecycle — from initial token issuance to downstream API access, delegation, and governance. Thunder provides capabilities for each stage.
+
+### Service-to-Service Token Delegation
+
+When a service calls a downstream service, you need the downstream service to receive a token scoped to its own audience rather than the original caller's token. You need token exchange to work consistently across services without spreading raw user tokens through your infrastructure.
+
+*For example, an API gateway receives a user access token and exchanges it for a narrower token scoped to a specific internal microservice before forwarding the request.*
+
+**How Thunder helps:**
+
+Thunder supports OAuth 2.0 Token Exchange (RFC 8693) at the `POST /oauth2/token` endpoint using the `urn:ietf:params:oauth:grant-type:token-exchange` grant type. A service can present a subject token and request a new token targeted at a specific resource or audience.
+
+Thunder validates the subject token, checks that the requesting application has the token exchange grant type authorized, and issues a new access token with the correct audience binding.
+
+### Scope Reduction for Least-Privilege Access
+
+When a service performs a narrow operation on behalf of a user, you do not want the downstream service to receive a token with the full set of permissions the user originally requested. You need to reduce token scope to match only what the operation requires.
+
+*For example, a reporting service receives a token with read-only analytics scope even though the original user token carries broader administrative permissions.*
+
+**How Thunder helps:**
+
+Thunder enforces scope reduction during token exchange. When you request a narrower set of scopes in the exchange, Thunder grants only the intersection of the requested scopes and the scopes present in the subject token. Thunder does not grant new scopes that the original token did not carry.
+
+This model lets you apply least-privilege access at each service boundary without requiring callers to manage scope separately.
+
+### Audience-Specific Token Issuance
+
+When a token must carry an audience claim that matches the target resource server, you need a token exchange flow that binds the issued token to the correct audience before the service call proceeds. This prevents tokens intended for one service from being reused at a different service.
+
+*For example, a token issued for an inventory API carries the inventory service audience and cannot be accepted by the billing API.*
+
+**How Thunder helps:**
+
+Thunder supports the `audience` and `resource` parameters in token exchange requests. You can specify the intended audience or resource URI when exchanging a token, and Thunder binds the issued token to that audience.
+
+When neither `audience` nor `resource` is specified, Thunder determines the audience from the subject token's existing claims, preserving the original binding.
+
+### Delegated User Actions
+
+When a service must act on behalf of a user but the service itself initiates the call, you need a token structure that records both the user's identity and the acting service's identity. You also need this delegation to be explicit in the token so downstream services can distinguish delegated calls from direct user calls.
+
+*For example, a workflow automation service exchanges a user token with an actor token that identifies the automation service. Downstream APIs receive a token that records both the user subject and the automation service as the actor.*
+
+**How Thunder helps:**
+
+Thunder supports actor tokens in token exchange requests. When you provide an `actor_token` and `actor_token_type` alongside the subject token, Thunder validates both tokens and records the actor claim in the issued token.
+
+This lets downstream services inspect whether a call arrived from a user directly or through a delegated service, and apply authorization decisions accordingly.
+
+### Vendor-Agnostic Trust Across Identity Silos
+
+When your platform spans multiple identity providers — across clouds, partners, or acquired systems — services end up receiving tokens from different issuers with different claim structures. Requiring each downstream service to trust and understand every upstream identity silo creates fragile, tightly coupled integrations.
+
+*For example, a user authenticated through a partner identity provider presents their token to an internal API. Rather than configuring each internal service to trust the partner IDP, the API gateway exchanges the external token for an internal Thunder-issued token before forwarding the request.*
+
+**How Thunder helps:**
+
+Thunder acts as a central trust broker. By configuring Thunder as a trusted issuer registry and exchange endpoint, external tokens from other identity providers can be exchanged for internally issued tokens. Downstream services only need to trust Thunder, decoupling them from upstream identity provider details.
+
+### Secure AI Agent Identity
+
+When AI agents call APIs or tools as part of an agentic workflow, each action needs to carry a scoped credential that identifies both the agent and the user it acts on behalf of. Without a dedicated token exchange layer, agents either carry overly broad credentials or require every downstream tool to implement its own identity verification.
+
+*For example, an AI agent handling a user request exchanges the user's session token for a short-lived, narrowly scoped token before calling an external tool. The tool receives a token that records both the user identity and the agent's identity as the actor.*
+
+**How Thunder helps:**
+
+Thunder issues scoped, short-lived tokens for AI agent actions using the same token exchange flow. The actor token mechanism explicitly records the agent identity alongside the user subject, giving downstream tools a verifiable record of who initiated the action and which agent performed it.
+
+### Token Exchange Application Authorization
+
+When you operate multiple applications in your platform, you need control over which applications can perform token exchange. Allowing every application to exchange tokens by default increases the attack surface if a client credential is compromised.
+
+*For example, only API gateway applications have the token exchange grant type enabled, while user-facing applications use authorization code or client credentials flows.*
+
+**How Thunder helps:**
+
+Thunder requires explicit grant type authorization per application. An application can perform token exchange only if `urn:ietf:params:oauth:grant-type:token-exchange` is listed in that application's authorized grant types.
+
+You configure this at application registration time and can modify it through the application management API. This model keeps token exchange restricted to the services that legitimately require it.
+
+### Token Validation Across Service Boundaries
+
+When downstream services receive exchanged tokens, they need to validate token authenticity, audience binding, and expiry before processing the request. You need a consistent validation model so each service does not implement its own token parsing logic.
+
+*For example, a resource API validates the audience claim, signature, and expiry on every inbound token before processing the request.*
+
+**How Thunder helps:**
+
+Thunder issues signed JWT access tokens with standard claims including `iss`, `sub`, `aud`, `exp`, and `iat`. Downstream services can validate tokens using Thunder's public keys exposed at the standard JSON Web Key Set (JWKS) endpoint.
+
+Thunder preserves user attributes from the original subject token in the exchanged token, so downstream services receive consistent identity context without querying Thunder on each request.

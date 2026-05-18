@@ -1,0 +1,376 @@
+---
+title: Secure Apache APISIX Routes with Thunder
+description: Configure Apache APISIX to validate JWT access tokens issued by Thunder and enforce scope-based authorization using the OpenID Connect plugin.
+sidebar_position: 1
+---
+
+# Secure Apache APISIX Routes with Thunder
+
+This guide shows you how to use Thunder as the Security Token Service (STS) for [Apache APISIX](https://apisix.apache.org/). By the end, APISIX will accept only valid Thunder-issued JWTs using JWKS-based signature verification. If your routes also require scope-based authorization, follow the [Scope-Based Authorization](#scope-based-authorization) section at the end.
+
+## Prerequisites
+
+- Thunder is installed and configured. See [Get Thunder](/docs/next/guides/getting-started/get-thunder).
+- Docker is installed on your machine (required to run Apache APISIX).
+- `curl` is available in your terminal.
+
+---
+
+## Start Thunder with a Publicly Accessible Address
+
+Apache APISIX runs inside a Docker container and cannot resolve `localhost` to your host machine. Thunder embeds its hostname into the OIDC discovery document and the tokens it issues, so the hostname must be reachable from both your local machine and from inside Docker. Use your machine's LAN IP address or any other hostname that satisfies both.
+
+1. Open `repository/conf/deployment.yaml` in your Thunder installation directory.
+2. Set `server.hostname` to a reachable IP address or hostname:
+
+   ```yaml
+   server:
+     hostname: "<THUNDER_HOST>"
+   ```
+
+3. Start Thunder:
+
+   ```bash
+   ./start.sh
+   ```
+
+   Thunder starts on `https://<THUNDER_HOST>:8090`.
+
+## Create an Application and Obtain an Access Token
+
+#### Create a Backend Service Application
+
+1. Sign in to the Thunder Console at `https://<THUNDER_HOST>:8090/console`.
+2. Navigate to **Applications** → **New Application**.
+3. Enter an **Application Name** (for example, `apisix-client`).
+4. Select **Backend Service** as the application type.
+5. Click **Create Application**.
+6. Note the **Client ID** and **Client Secret** from the application details page.
+
+#### Obtain an Access Token
+
+Use the client credentials flow to request an access token from Thunder:
+
+```bash
+curl -k -X POST "https://<THUNDER_HOST>:8090/oauth2/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials&client_id=<CLIENT_ID>&client_secret=<CLIENT_SECRET>&scope=openid profile"
+```
+
+The response contains an `access_token`:
+
+```json
+{
+  "access_token": "<ACCESS_TOKEN>",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "openid profile"
+}
+```
+
+Copy the `access_token` value. You will use it in [Invoke the Protected Route](#invoke-the-protected-route).
+
+## Start Apache APISIX
+
+Run the APISIX quickstart script to start a local APISIX instance using Docker:
+
+```bash
+curl -sL https://run.api7.ai/apisix/quickstart | sh
+```
+
+Wait for the script to complete. APISIX starts with:
+
+- Admin API on port `9180`
+- Proxy on port `9080`
+
+## Configure a Route with the OpenID Connect Plugin
+
+Create a route that requires a valid Thunder-issued JWT. The `openid-connect` plugin fetches the JWKS from Thunder's discovery document and validates every incoming bearer token against it.
+
+```bash
+curl -i "http://127.0.0.1:9180/apisix/admin/routes" -X PUT -d '{
+  "id": "auth-with-thunder",
+  "uri": "/anything/*",
+  "plugins": {
+    "openid-connect": {
+      "bearer_only": true,
+      "client_id": "<CLIENT_ID>",
+      "client_secret": "<CLIENT_SECRET>",
+      "use_jwks": true,
+      "discovery": "https://<THUNDER_HOST>:8090/.well-known/openid-configuration",
+      "ssl_verify": false,
+      "scope": "openid profile"
+    }
+  },
+  "upstream": {
+    "type": "roundrobin",
+    "nodes": {
+      "httpbin.org:80": 1
+    }
+  }
+}'
+```
+
+Replace `<THUNDER_HOST>` with the hostname or IP address you configured in [Start Thunder with a Publicly Accessible Address](#start-thunder-with-a-publicly-accessible-address), and replace `<CLIENT_ID>` and `<CLIENT_SECRET>` with the values from [Create an Application and Obtain an Access Token](#create-an-application-and-obtain-an-access-token).
+
+:::important
+The `discovery` URL must use the same hostname you set in `server.hostname`. Apache APISIX fetches this URL from inside the Docker container, so `localhost` will not resolve to your host machine.
+:::
+
+## Invoke the Protected Route
+
+Export your access token and send a request to the protected route:
+
+```bash
+export ACCESS_TOKEN="<ACCESS_TOKEN>"
+curl -i "http://127.0.0.1:9080/anything/test" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+A successful request returns an HTTP `200` response forwarded from `httpbin.org`. If the token is missing or invalid, APISIX returns `401 Unauthorized`.
+
+---
+
+## Scope-Based Authorization
+
+By default, APISIX accepts any valid Thunder-issued JWT. If your routes need to enforce that tokens carry specific permission scopes, follow these steps. APISIX will reject requests whose tokens lack the required scope with `403 Forbidden`.
+
+### Set Up Authorization Resources
+
+Thunder models permissions as resources grouped under a resource server. You then bundle those permissions into a role and assign the role to users. The scopes that appear in a user's access token reflect the permissions their roles grant.
+
+:::note
+Resource server and resource management currently works only with APIs. Use your admin access token in the `Authorization` header for all calls in this step. You can obtain an admin token using the [Thunder Postman collection](https://github.com/thunder-id/thunder-id/tree/main/samples/api/postman/authentication).
+:::
+
+#### Create a Resource Server
+
+A resource server represents the protected API. The `handle` is an immutable prefix that Thunder prepends to all permission strings for this resource server:
+
+```bash
+curl -k -X POST "https://<THUNDER_HOST>:8090/resource-servers" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -d '{
+    "name": "HTTP Bin",
+    "description": "Permissions for httpbin routes",
+    "handle": "httpbin",
+    "identifier": "httpbin",
+    "ouId": "<OU_ID>"
+  }'
+```
+
+Note the resource server `id` from the response. You will use it in the following requests.
+
+#### Add Resources
+
+Create a resource for each logical entity you want to protect. Note the `id` returned for each resource — you will use it when adding actions.
+
+Create the `user-agent` resource:
+
+```bash
+curl -k -X POST "https://<THUNDER_HOST>:8090/resource-servers/<RESOURCE_SERVER_ID>/resources" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -d '{
+    "name": "User Agent",
+    "description": "User-Agent header",
+    "handle": "user-agent"
+  }'
+```
+
+Create the `headers` resource:
+
+```bash
+curl -k -X POST "https://<THUNDER_HOST>:8090/resource-servers/<RESOURCE_SERVER_ID>/resources" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -d '{
+    "name": "Headers",
+    "description": "Request headers",
+    "handle": "headers"
+  }'
+```
+
+#### Add Actions
+
+Actions represent the operations permitted on a resource. Thunder combines the resource server handle, resource handle, and action handle to form the full scope string — for example, `httpbin:headers:read`.
+
+Add a `read` action to the `user-agent` resource:
+
+```bash
+curl -k -X POST "https://<THUNDER_HOST>:8090/resource-servers/<RESOURCE_SERVER_ID>/resources/<USER_AGENT_RESOURCE_ID>/actions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -d '{
+    "name": "Read",
+    "handle": "read"
+  }'
+```
+
+Add a `read` action to the `headers` resource:
+
+```bash
+curl -k -X POST "https://<THUNDER_HOST>:8090/resource-servers/<RESOURCE_SERVER_ID>/resources/<HEADERS_RESOURCE_ID>/actions" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -d '{
+    "name": "Read",
+    "handle": "read"
+  }'
+```
+
+#### Create a Role with Permissions
+
+Create a role that bundles the two permissions you just defined:
+
+```bash
+curl -k -X POST "https://<THUNDER_HOST>:8090/roles" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -d '{
+    "name": "Headers Reader",
+    "description": "Access to read headers routes",
+    "ouId": "<OU_ID>",
+    "permissions": [
+      {
+        "resourceServerId": "<RESOURCE_SERVER_ID>",
+        "permissions": ["httpbin:user-agent:read", "httpbin:headers:read"]
+      }
+    ]
+  }'
+```
+
+Note the role `id` from the response.
+
+### Create a User, Assign the Role, and Obtain a Scoped Token
+
+#### Create a Test User
+
+1. In the Thunder Console, navigate to **Users** → **Add User**.
+2. Select a user type, fill in the required attributes, and click **Create User**.
+3. Note the user's ID from the user details page.
+
+#### Assign the Role to the User
+
+```bash
+curl -k -X POST "https://<THUNDER_HOST>:8090/roles/<ROLE_ID>/assignments/add" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -d '{
+    "assignments": [
+      {
+        "id": "<USER_ID>",
+        "type": "user"
+      }
+    ]
+  }'
+```
+
+#### Create a Full-Stack Application
+
+User-scoped tokens require the authorization code flow. Create a Full-Stack App application to support this:
+
+1. In the Thunder Console, navigate to **Applications** → **New Application**.
+2. Enter an **Application Name** (for example, `apisix-user-client`).
+3. Select **Full-stack App** as the application type.
+4. Enter `http://localhost:3000/callback` as the **Authorized Redirect URI**.
+5. Click **Create Application**.
+6. Note the **Client ID** and **Client Secret**.
+
+#### Obtain a Scoped User Access Token
+
+The authorization code flow requires user interaction in a browser. Open the following URL in your browser, replacing the placeholders:
+
+```
+https://<THUNDER_HOST>:8090/authorize?response_type=code&client_id=<USER_APP_CLIENT_ID>&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&scope=openid%20profile%20httpbin%3Aheaders%3Aread%20httpbin%3Auser-agent%3Aread&state=test
+```
+
+Sign in as the test user. After a successful sign-in, your browser redirects to the callback URL with a `code` parameter in the query string:
+
+```
+http://localhost:3000/callback?code=<AUTH_CODE>&state=test
+```
+
+Copy the `code` value and exchange it for an access token:
+
+```bash
+curl -k -X POST "https://<THUNDER_HOST>:8090/oauth2/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=authorization_code&code=<AUTH_CODE>&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&client_id=<USER_APP_CLIENT_ID>&client_secret=<USER_APP_CLIENT_SECRET>"
+```
+
+The response contains an `access_token` whose `scope` field includes `httpbin:headers:read` and `httpbin:user-agent:read` because the user has the role that grants those permissions.
+
+### Configure a Route with Required Scopes
+
+Create a new route that enforces the `httpbin:headers:read` scope. APISIX checks that every incoming token contains this scope before forwarding the request:
+
+```bash
+curl -i "http://127.0.0.1:9180/apisix/admin/routes" -X PUT -d '{
+  "id": "auth-with-thunder-headers",
+  "uri": "/headers",
+  "plugins": {
+    "openid-connect": {
+      "bearer_only": true,
+      "client_id": "<USER_APP_CLIENT_ID>",
+      "client_secret": "<USER_APP_CLIENT_SECRET>",
+      "use_jwks": true,
+      "discovery": "https://<THUNDER_HOST>:8090/.well-known/openid-configuration",
+      "ssl_verify": false,
+      "required_scopes": ["httpbin:headers:read"]
+    }
+  },
+  "upstream": {
+    "type": "roundrobin",
+    "nodes": {
+      "httpbin.org:80": 1
+    }
+  }
+}'
+```
+
+### Test with an Authorized User
+
+Use the scoped access token from [Create a User, Assign the Role, and Obtain a Scoped Token](#create-a-user-assign-the-role-and-obtain-a-scoped-token) to invoke the protected route:
+
+```bash
+export ACCESS_TOKEN="<SCOPED_ACCESS_TOKEN>"
+curl -i "http://127.0.0.1:9080/headers" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+APISIX verifies the token carries the `httpbin:headers:read` scope and forwards the request to `httpbin.org`. The response returns `200 OK`.
+
+### Test with an Unauthorized User
+
+Create a second user without the role and sign in as that user using the same authorization code flow from [Create a User, Assign the Role, and Obtain a Scoped Token](#create-a-user-assign-the-role-and-obtain-a-scoped-token) — without assigning the role. The token returned for this user does not include the `httpbin:headers:read` scope.
+
+Invoke the route with the token from the unauthorized user:
+
+```bash
+export ACCESS_TOKEN="<UNAUTHORIZED_ACCESS_TOKEN>"
+curl -i "http://127.0.0.1:9080/headers" \
+  -H "Authorization: Bearer $ACCESS_TOKEN"
+```
+
+APISIX inspects the token, finds that the `httpbin:headers:read` scope is absent, and returns `403 Forbidden`.
+
+---
+
+## Plugin Parameter Reference
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `client_id` | `<CLIENT_ID>` | The client ID of the Thunder application. The plugin validates the `aud` claim in incoming JWTs against this value, ensuring tokens were issued specifically for this client. |
+| `client_secret` | `<CLIENT_SECRET>` | The client secret of the Thunder application. Required by the plugin even when using JWKS-based validation, as it may be used for requests such as token introspection when use_jwks is disabled. |
+| `bearer_only` | `true` | Requires a Bearer token in all requests. APISIX returns `401` for requests without a valid token instead of redirecting to a sign-in page. |
+| `use_jwks` | `true` | Validates JWT signatures using the JWKS endpoint. APISIX fetches the JWKS URI from the discovery document and skips token introspection. |
+| `ssl_verify` | `false` | Disables TLS certificate verification. Use this during local development when Thunder uses a self-signed certificate. Enable certificate verification in production. |
+| `discovery` | `https://<THUNDER_HOST>:8090/.well-known/openid-configuration` | The OIDC discovery document URL. APISIX fetches this URL from inside the Docker container, so the hostname must be resolvable from within Docker. Use your host machine's IP address or `host.docker.internal` instead of `localhost`. |
+| `required_scopes` | `["httpbin:headers:read"]` | Scopes that the token must carry. APISIX returns `403` if any required scope is absent from the token. |
+
+## Next Steps
+
+- [Applications](/docs/next/guides/guides/applications) — Configure grant types and token settings for your application
+- [Security Token Service](/docs/next/use-cases/sts/security-token-service) — Learn about Thunder's token exchange and STS capabilities
