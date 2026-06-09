@@ -32,6 +32,9 @@ import (
 type SessionRecordStoreInterface interface {
 	CreateSession(ctx context.Context, rec SessionRecord) error
 	GetSessionByHandle(ctx context.Context, handleID string) (*SessionRecord, error)
+	// GetSessionByID retrieves a SessionRecord by its internal PK. For internal use only;
+	// SESSION_ID is never exposed to clients.
+	GetSessionByID(ctx context.Context, sessionID string) (*SessionRecord, error)
 	// TouchSession updates LAST_ACTIVE_AT and increments VERSION atomically.
 	// Returns true when the row was updated (VERSION matched), false on a version
 	// mismatch (concurrent update won the race), error on backend failure.
@@ -94,6 +97,28 @@ func (s *sessionRecordStore) GetSessionByHandle(ctx context.Context, handleID st
 	results, err := dbClient.QueryContext(ctx, queryGetSessionByHandle, handleID, s.deploymentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query session by handle: %w", err)
+	}
+
+	if len(results) == 0 {
+		return nil, errSessionNotFound
+	}
+	if len(results) != 1 {
+		return nil, fmt.Errorf("unexpected number of session rows: %d", len(results))
+	}
+
+	return s.buildFromRow(results[0])
+}
+
+// GetSessionByID retrieves a SessionRecord by its internal SESSION_ID.
+func (s *sessionRecordStore) GetSessionByID(ctx context.Context, sessionID string) (*SessionRecord, error) {
+	dbClient, err := s.dbProvider.GetRuntimeDBClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database client: %w", err)
+	}
+
+	results, err := dbClient.QueryContext(ctx, queryGetSessionByID, sessionID, s.deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query session by ID: %w", err)
 	}
 
 	if len(results) == 0 {

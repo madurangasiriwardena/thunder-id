@@ -145,3 +145,24 @@ CREATE INDEX idx_session_record_subject ON "SESSION_RECORD" (SUBJECT_ID, DEPLOYM
 
 -- Index for expiry-based cleanup jobs
 CREATE INDEX idx_session_record_absolute_expiry ON "SESSION_RECORD" (ABSOLUTE_EXPIRES_AT);
+
+CREATE TABLE "CLIENT_SESSION" (
+    DEPLOYMENT_ID      VARCHAR(255) NOT NULL,
+    CLIENT_SESSION_ID  VARCHAR(36)  NOT NULL,
+    SESSION_ID         VARCHAR(36)  NOT NULL,
+    CLIENT_ID          VARCHAR(255) NOT NULL,
+    OIDC_SID           VARCHAR(36)  NOT NULL,
+    CREATED_AT         TIMESTAMP    NOT NULL,
+    LAST_USED_AT       TIMESTAMP    NOT NULL,
+    STATUS             VARCHAR(32)  NOT NULL,
+    GRANTED_SCOPES     TEXT         NOT NULL DEFAULT '',
+    VERSION            INTEGER      NOT NULL DEFAULT 0,
+    PRIMARY KEY (CLIENT_SESSION_ID, DEPLOYMENT_ID),
+    FOREIGN KEY (SESSION_ID, DEPLOYMENT_ID) REFERENCES "SESSION_RECORD" (SESSION_ID, DEPLOYMENT_ID) ON DELETE CASCADE
+);
+
+-- Unique index for per-app session lookup (the EnsureClientSession hot path)
+CREATE UNIQUE INDEX idx_client_session_session_client ON "CLIENT_SESSION" (SESSION_ID, CLIENT_ID, DEPLOYMENT_ID);
+
+-- Index for OIDC front-channel logout (sid lookup)
+CREATE INDEX idx_client_session_oidc_sid ON "CLIENT_SESSION" (OIDC_SID, DEPLOYMENT_ID);

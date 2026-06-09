@@ -414,6 +414,10 @@ func (tb *tokenBuilder) buildIDTokenClaims(ctx *IDTokenBuildContext) map[string]
 		claims["acr"] = ctx.CompletedACR
 	}
 
+	if ctx.SID != "" {
+		claims["sid"] = ctx.SID
+	}
+
 	userAttributes := ctx.UserAttributes
 	if userAttributes == nil {
 		userAttributes = make(map[string]interface{})

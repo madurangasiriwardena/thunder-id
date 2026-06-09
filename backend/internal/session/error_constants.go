@@ -21,5 +21,6 @@ package session
 import "errors"
 
 var (
-	errSessionNotFound = errors.New("session not found")
+	errSessionNotFound       = errors.New("session not found")
+	errClientSessionNotFound = errors.New("client session not found")
 )

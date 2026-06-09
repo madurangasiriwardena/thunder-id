@@ -89,6 +89,9 @@ type IDTokenBuildContext struct {
 	ClaimsRequest  *oauth2model.ClaimsRequest
 	Nonce          string
 	CompletedACR   string
+	// SID is the OIDC session identifier sourced from ClientSession.OIDCSID.
+	// When non-empty it is emitted as the "sid" claim in the ID token.
+	SID string
 }
 
 // RefreshTokenClaims represents the validated claims from a refresh token.

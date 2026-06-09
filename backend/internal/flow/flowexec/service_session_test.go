@@ -55,6 +55,24 @@ func (s *stubSessionService) ResolveSession(
 	return nil, nil
 }
 
+func (s *stubSessionService) EnsureClientSession(
+	_ context.Context, _, _ string, _ []string,
+) (*session.ClientSession, error) {
+	return nil, nil
+}
+
+func (s *stubSessionService) GetSessionByID(
+	_ context.Context, _ string,
+) (*session.SessionRecord, error) {
+	return nil, nil
+}
+
+func (s *stubSessionService) GetClientSessionByID(
+	_ context.Context, _ string,
+) (*session.ClientSession, error) {
+	return nil, nil
+}
+
 // TestFlowStep_SessionHandle_Set tests that the isComplete branch in Execute()
 // calls the session service and sets FlowStep.SessionHandle to the handle ID.
 // This exercises the session wiring at the flowExecService level without needing

@@ -173,6 +173,7 @@ func (s *flowExecService) Execute(ctx context.Context,
 				SubjectID:       engineCtx.AuthenticatedUser.UserID,
 				AppID:           engineCtx.AppID,
 				AuthenticatedAt: time.Now().UTC(),
+				AssuranceLevel:  engineCtx.RuntimeData[common.RuntimeKeySelectedAuthClass],
 			}
 			sessionRec, sessionErr := s.sessionService.CreateSessionFromFlow(ctx, sessionInput)
 			if sessionErr != nil {

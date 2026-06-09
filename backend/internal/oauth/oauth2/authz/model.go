@@ -54,6 +54,10 @@ type AuthorizationCode struct {
 	Nonce               string
 	CompletedACR        string
 	DPoPJkt             string
+	// SessionID and ClientSessionID link the code to the browser SSO session created during
+	// the flow. They ride in AUTHZ_DATA JSON (no new DB columns). Empty for sessionless flows.
+	SessionID       string
+	ClientSessionID string
 }
 
 // AuthZPostRequest represents the request body for the authorization POST request.

@@ -51,6 +51,8 @@ const (
 	jsonDataKeyNonce               = "nonce"
 	jsonDataKeyCompletedACR        = "completed_acr"
 	jsonDataKeyDPoPJkt             = "dpop_jkt"
+	jsonDataKeySessionID           = "session_id"
+	jsonDataKeyClientSessionID     = "client_session_id"
 )
 
 // AuthorizationCodeStoreInterface defines the interface for managing authorization codes.
@@ -146,9 +148,16 @@ func (acs *authorizationCodeStore) getJSONDataBytes(authzCode AuthorizationCode)
 		jsonDataKeyCodeChallengeMethod: authzCode.CodeChallengeMethod,
 		jsonDataKeyResource:            authzCode.Resources,
 		jsonDataKeyClaimsLocales:       authzCode.ClaimsLocales,
-		jsonDataKeyNonce:               authzCode.Nonce,
-		jsonDataKeyCompletedACR:        authzCode.CompletedACR,
-		jsonDataKeyDPoPJkt:             authzCode.DPoPJkt,
+		jsonDataKeyNonce:        authzCode.Nonce,
+		jsonDataKeyCompletedACR: authzCode.CompletedACR,
+		jsonDataKeyDPoPJkt:      authzCode.DPoPJkt,
+	}
+
+	if authzCode.SessionID != "" {
+		jsonData[jsonDataKeySessionID] = authzCode.SessionID
+	}
+	if authzCode.ClientSessionID != "" {
+		jsonData[jsonDataKeyClientSessionID] = authzCode.ClientSessionID
 	}
 
 	// Include user attributes if present
@@ -283,6 +292,12 @@ func appendAuthzDataJSON(row map[string]interface{}, authzCode *AuthorizationCod
 	}
 	if dpopJkt, ok := authzData[jsonDataKeyDPoPJkt].(string); ok {
 		authzCode.DPoPJkt = dpopJkt
+	}
+	if sessionID, ok := authzData[jsonDataKeySessionID].(string); ok {
+		authzCode.SessionID = sessionID
+	}
+	if clientSessionID, ok := authzData[jsonDataKeyClientSessionID].(string); ok {
+		authzCode.ClientSessionID = clientSessionID
 	}
 
 	if claimsData, ok := authzData[jsonDataKeyClaimsRequest]; ok && claimsData != nil {

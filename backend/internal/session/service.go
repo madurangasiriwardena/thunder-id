@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/thunder-id/thunderid/internal/system/config"
@@ -39,6 +40,14 @@ type SessionServiceInterface interface {
 	// Returns (nil, nil) when no cookie is present, the handle is unknown, or the session
 	// has expired.
 	ResolveSession(ctx context.Context, r *http.Request) (*SessionRecord, error)
+	// EnsureClientSession returns the existing ClientSession for (sessionID, clientID) or
+	// creates a new one. Uses create-or-reuse semantics.
+	EnsureClientSession(ctx context.Context, sessionID, clientID string, grantedScopes []string) (*ClientSession, error)
+	// GetSessionByID retrieves a SessionRecord by its internal PK. For /token use only;
+	// SESSION_ID is never exposed to clients.
+	GetSessionByID(ctx context.Context, sessionID string) (*SessionRecord, error)
+	// GetClientSessionByID retrieves a ClientSession by its PK, for /token use.
+	GetClientSessionByID(ctx context.Context, clientSessionID string) (*ClientSession, error)
 }
 
 // CreateSessionInput carries the facts from a completed authentication flow.
@@ -46,15 +55,19 @@ type CreateSessionInput struct {
 	SubjectID       string
 	AppID           string
 	AuthenticatedAt time.Time
+	// AssuranceLevel is the ACR value from the completed flow. When empty,
+	// AssuranceLevelPlaceholder is used.
+	AssuranceLevel string
 }
 
 // sessionService is the implementation of SessionServiceInterface.
 type sessionService struct {
-	store SessionRecordStoreInterface
+	store   SessionRecordStoreInterface
+	csStore ClientSessionStoreInterface
 }
 
-func newSessionService(store SessionRecordStoreInterface) SessionServiceInterface {
-	return &sessionService{store: store}
+func newSessionService(store SessionRecordStoreInterface, csStore ClientSessionStoreInterface) SessionServiceInterface {
+	return &sessionService{store: store, csStore: csStore}
 }
 
 // CreateSessionFromFlow creates a durable SessionRecord for a managed session group.
@@ -79,6 +92,11 @@ func (s *sessionService) CreateSessionFromFlow(
 		return nil, fmt.Errorf("failed to generate handle ID: %w", err)
 	}
 
+	assuranceLevel := in.AssuranceLevel
+	if assuranceLevel == "" {
+		assuranceLevel = AssuranceLevelPlaceholder
+	}
+
 	cfg := config.GetServerRuntime().Config.Session
 	now := time.Now().UTC()
 	idleExpiresAt := now.Add(time.Duration(cfg.IdleTimeout) * time.Second)
@@ -89,7 +107,7 @@ func (s *sessionService) CreateSessionFromFlow(
 		SubjectID:         in.SubjectID,
 		SessionGroupID:    group.ID,
 		AuthenticatedAt:   in.AuthenticatedAt,
-		AssuranceLevel:    AssuranceLevelPlaceholder, // TODO Phase B: derive real ACR from flow
+		AssuranceLevel:    assuranceLevel,
 		CreatedAt:         now,
 		LastActiveAt:      now,
 		IdleExpiresAt:     idleExpiresAt,
@@ -144,6 +162,79 @@ func (s *sessionService) ResolveSession(
 	}
 
 	return rec, nil
+}
+
+// EnsureClientSession returns the existing ClientSession for (sessionID, clientID) or creates one.
+func (s *sessionService) EnsureClientSession(
+	ctx context.Context, sessionID, clientID string, grantedScopes []string,
+) (*ClientSession, error) {
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "SessionService"))
+
+	existing, err := s.csStore.GetClientSessionBySessionAndClient(ctx, sessionID, clientID)
+	if err != nil && !errors.Is(err, errClientSessionNotFound) {
+		return nil, fmt.Errorf("failed to look up client session: %w", err)
+	}
+	if existing != nil {
+		return existing, nil
+	}
+
+	clientSessionID, err := sysutils.GenerateUUIDv7()
+	if err != nil {
+		logger.ErrorWithContext(ctx, "Failed to generate client session ID", log.Error(err))
+		return nil, fmt.Errorf("failed to generate client session ID: %w", err)
+	}
+	oidcSID, err := sysutils.GenerateUUIDv7()
+	if err != nil {
+		logger.ErrorWithContext(ctx, "Failed to generate OIDC SID", log.Error(err))
+		return nil, fmt.Errorf("failed to generate OIDC SID: %w", err)
+	}
+
+	now := time.Now().UTC()
+	cs := ClientSession{
+		ClientSessionID: clientSessionID,
+		SessionID:       sessionID,
+		ClientID:        clientID,
+		OIDCSID:         oidcSID,
+		CreatedAt:       now,
+		LastUsedAt:      now,
+		Status:          ClientSessionStateActive,
+		GrantedScopes:   strings.Join(grantedScopes, " "),
+		Version:         0,
+	}
+
+	if err := s.csStore.CreateClientSession(ctx, cs); err != nil {
+		logger.ErrorWithContext(ctx, "Failed to persist client session", log.Error(err))
+		return nil, fmt.Errorf("failed to create client session: %w", err)
+	}
+
+	logger.DebugWithContext(ctx, "Client session created",
+		log.String("sessionID", sessionID),
+		log.String("clientID", clientID))
+	return &cs, nil
+}
+
+// GetSessionByID retrieves a SessionRecord by its internal PK.
+func (s *sessionService) GetSessionByID(ctx context.Context, sessionID string) (*SessionRecord, error) {
+	rec, err := s.store.GetSessionByID(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, errSessionNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get session by ID: %w", err)
+	}
+	return rec, nil
+}
+
+// GetClientSessionByID retrieves a ClientSession by its PK.
+func (s *sessionService) GetClientSessionByID(ctx context.Context, clientSessionID string) (*ClientSession, error) {
+	cs, err := s.csStore.GetClientSessionByID(ctx, clientSessionID)
+	if err != nil {
+		if errors.Is(err, errClientSessionNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get client session by ID: %w", err)
+	}
+	return cs, nil
 }
 
 // resolveSessionGroup maps an appID to its session group.

@@ -41,7 +41,8 @@ func Initialize(_ *http.ServeMux) SessionServiceInterface {
 	}
 
 	store := newSessionRecordStore(dbprovider.GetDBProvider())
-	svc := newSessionService(store)
+	csStore := newClientSessionStore(dbprovider.GetDBProvider())
+	svc := newSessionService(store, csStore)
 
 	logger.Debug("Session service initialized (DB-backed store)")
 	return svc

@@ -350,7 +350,7 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_GetOAuthMe
 func (suite *AuthorizeHandlerTestSuite) TestHandleAuthCallbackPostRequest_Success() {
 	redirectURI := "https://client.example.com/callback?code=test-code&state=test-state"
 	suite.mockAuthzService.EXPECT().
-		HandleAuthorizationCallback(mock.Anything, testAuthID, "test-assertion").
+		HandleAuthorizationCallback(mock.Anything, testAuthID, "test-assertion", mock.Anything).
 		Return(redirectURI, nil)
 
 	postData := AuthZPostRequest{
@@ -379,7 +379,7 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthCallbackPostRequest_Servic
 		State:   "test-state",
 	}
 	suite.mockAuthzService.EXPECT().
-		HandleAuthorizationCallback(mock.Anything, testAuthID, "test-assertion").
+		HandleAuthorizationCallback(mock.Anything, testAuthID, "test-assertion", mock.Anything).
 		Return("", authErr)
 
 	postData := AuthZPostRequest{
@@ -410,7 +410,7 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthCallbackPostRequest_Servic
 		SendErrorToClient: true,
 		ClientRedirectURI: "https://client.example.com/callback",
 	}
-	suite.mockAuthzService.EXPECT().HandleAuthorizationCallback(mock.Anything, testAuthID, "test-assertion").
+	suite.mockAuthzService.EXPECT().HandleAuthorizationCallback(mock.Anything, testAuthID, "test-assertion", mock.Anything).
 		Return("", authErr)
 
 	postData := AuthZPostRequest{
@@ -443,7 +443,7 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthCallbackPostRequest_Client
 		SendErrorToClient: true,
 		ClientRedirectURI: "https://client.example.com/callback",
 	}
-	suite.mockAuthzService.EXPECT().HandleAuthorizationCallback(mock.Anything, testAuthID, "test-assertion").
+	suite.mockAuthzService.EXPECT().HandleAuthorizationCallback(mock.Anything, testAuthID, "test-assertion", mock.Anything).
 		Return("", authErr)
 
 	postData := AuthZPostRequest{

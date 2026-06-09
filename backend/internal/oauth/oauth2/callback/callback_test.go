@@ -51,7 +51,7 @@ func TestCallbackDispatcherSuite(t *testing.T) {
 func (suite *CallbackDispatcherTestSuite) SetupTest() {
 	suite.mockAuthZ = authzmock.NewAuthorizeServiceInterfaceMock(suite.T())
 	suite.mockCIBA = cibamock.NewCIBAServiceInterfaceMock(suite.T())
-	suite.dispatcher = newCallbackDispatcher(suite.mockAuthZ, suite.mockCIBA)
+	suite.dispatcher = newCallbackDispatcher(suite.mockAuthZ, suite.mockCIBA, nil)
 
 	_ = config.InitializeServerRuntime("test", &config.Config{
 		JWT: config.JWTConfig{
@@ -114,7 +114,7 @@ func (suite *CallbackDispatcherTestSuite) TestHandleFlowCallback_MissingAssertio
 
 func (suite *CallbackDispatcherTestSuite) TestHandleFlowCallback_AuthCode_DefaultType_Success() {
 	suite.mockAuthZ.EXPECT().
-		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion").
+		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion", mock.Anything).
 		Return("https://client.example.com/cb?code=xyz", nil)
 
 	w := suite.postCallback(`{"authId":"auth-1","assertion":"the-assertion"}`)
@@ -127,7 +127,7 @@ func (suite *CallbackDispatcherTestSuite) TestHandleFlowCallback_AuthCode_Defaul
 
 func (suite *CallbackDispatcherTestSuite) TestHandleFlowCallback_AuthCode_ExplicitType_Success() {
 	suite.mockAuthZ.EXPECT().
-		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion").
+		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion", mock.Anything).
 		Return("https://client.example.com/cb?code=xyz", nil)
 
 	w := suite.postCallback(`{"authId":"auth-1","assertion":"the-assertion","type":"authorization_code"}`)
@@ -147,7 +147,7 @@ func (suite *CallbackDispatcherTestSuite) TestHandleFlowCallback_AuthCode_ErrorS
 		State:             "state-abc",
 	}
 	suite.mockAuthZ.EXPECT().
-		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion").
+		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion", mock.Anything).
 		Return("", authErr)
 
 	w := suite.postCallback(`{"authId":"auth-1","assertion":"the-assertion"}`)
@@ -168,7 +168,7 @@ func (suite *CallbackDispatcherTestSuite) TestHandleFlowCallback_AuthCode_ErrorS
 		State:             "",
 	}
 	suite.mockAuthZ.EXPECT().
-		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion").
+		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion", mock.Anything).
 		Return("", authErr)
 
 	w := suite.postCallback(`{"authId":"auth-1","assertion":"the-assertion"}`)
@@ -188,7 +188,7 @@ func (suite *CallbackDispatcherTestSuite) TestHandleFlowCallback_AuthCode_ErrorP
 		State:             "mystate",
 	}
 	suite.mockAuthZ.EXPECT().
-		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion").
+		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion", mock.Anything).
 		Return("", authErr)
 
 	w := suite.postCallback(`{"authId":"auth-1","assertion":"the-assertion"}`)
@@ -208,7 +208,7 @@ func (suite *CallbackDispatcherTestSuite) TestHandleFlowCallback_AuthCode_ErrorP
 		State:             "",
 	}
 	suite.mockAuthZ.EXPECT().
-		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion").
+		HandleAuthorizationCallback(mock.Anything, "auth-1", "the-assertion", mock.Anything).
 		Return("", authErr)
 
 	w := suite.postCallback(`{"authId":"auth-1","assertion":"the-assertion"}`)

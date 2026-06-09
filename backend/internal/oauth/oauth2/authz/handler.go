@@ -101,7 +101,7 @@ func (ah *authorizeHandler) HandleAuthCallbackPostRequest(w http.ResponseWriter,
 		authID := oAuthMessage.AuthID
 		assertion := oAuthMessage.RequestBodyParams[oauth2const.Assertion]
 
-		redirectURI, authErr := ah.authZService.HandleAuthorizationCallback(ctx, authID, assertion)
+		redirectURI, authErr := ah.authZService.HandleAuthorizationCallback(ctx, authID, assertion, nil)
 		if authErr != nil {
 			if authErr.SendErrorToClient {
 				ah.writeAuthZResponseToClientRedirect(ctx, w, authErr)

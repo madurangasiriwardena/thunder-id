@@ -26,6 +26,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/par"
 	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/database/provider"
@@ -41,6 +42,7 @@ func Initialize(
 	jwtService jwt.JWTServiceInterface,
 	flowExecService flowexec.FlowExecServiceInterface,
 	parService par.PARServiceInterface,
+	sessionService session.SessionServiceInterface,
 ) (AuthorizeServiceInterface, error) {
 	authzCodeStore, authzReqStore, transactioner, err := initializeAuthorizationStores()
 	if err != nil {
@@ -49,7 +51,7 @@ func Initialize(
 
 	authzService := newAuthorizeService(
 		inboundClient, resourceService, jwtService, flowExecService,
-		authzCodeStore, authzReqStore, parService, transactioner,
+		authzCodeStore, authzReqStore, parService, transactioner, sessionService,
 	)
 	authzHandler := newAuthorizeHandler(authzService)
 	registerRoutes(mux, authzHandler)

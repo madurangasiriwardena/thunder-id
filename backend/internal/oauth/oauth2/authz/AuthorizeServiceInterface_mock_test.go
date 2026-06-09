@@ -8,6 +8,7 @@ import (
 	"context"
 
 	mock "github.com/stretchr/testify/mock"
+	"github.com/thunder-id/thunderid/internal/session"
 )
 
 // NewAuthorizeServiceInterfaceMock creates a new instance of AuthorizeServiceInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -112,8 +113,8 @@ func (_c *AuthorizeServiceInterfaceMock_GetAuthorizationCodeDetails_Call) RunAnd
 }
 
 // HandleAuthorizationCallback provides a mock function for the type AuthorizeServiceInterfaceMock
-func (_mock *AuthorizeServiceInterfaceMock) HandleAuthorizationCallback(ctx context.Context, authID string, assertion string) (string, *AuthorizationError) {
-	ret := _mock.Called(ctx, authID, assertion)
+func (_mock *AuthorizeServiceInterfaceMock) HandleAuthorizationCallback(ctx context.Context, authID string, assertion string, sessionRec *session.SessionRecord) (string, *AuthorizationError) {
+	ret := _mock.Called(ctx, authID, assertion, sessionRec)
 
 	if len(ret) == 0 {
 		panic("no return value specified for HandleAuthorizationCallback")
@@ -121,16 +122,16 @@ func (_mock *AuthorizeServiceInterfaceMock) HandleAuthorizationCallback(ctx cont
 
 	var r0 string
 	var r1 *AuthorizationError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) (string, *AuthorizationError)); ok {
-		return returnFunc(ctx, authID, assertion)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, *session.SessionRecord) (string, *AuthorizationError)); ok {
+		return returnFunc(ctx, authID, assertion, sessionRec)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string) string); ok {
-		r0 = returnFunc(ctx, authID, assertion)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, *session.SessionRecord) string); ok {
+		r0 = returnFunc(ctx, authID, assertion, sessionRec)
 	} else {
 		r0 = ret.Get(0).(string)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string) *AuthorizationError); ok {
-		r1 = returnFunc(ctx, authID, assertion)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, *session.SessionRecord) *AuthorizationError); ok {
+		r1 = returnFunc(ctx, authID, assertion, sessionRec)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(*AuthorizationError)
@@ -148,11 +149,12 @@ type AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call struct {
 //   - ctx context.Context
 //   - authID string
 //   - assertion string
-func (_e *AuthorizeServiceInterfaceMock_Expecter) HandleAuthorizationCallback(ctx interface{}, authID interface{}, assertion interface{}) *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call {
-	return &AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call{Call: _e.mock.On("HandleAuthorizationCallback", ctx, authID, assertion)}
+//   - sessionRec *session.SessionRecord
+func (_e *AuthorizeServiceInterfaceMock_Expecter) HandleAuthorizationCallback(ctx interface{}, authID interface{}, assertion interface{}, sessionRec interface{}) *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call {
+	return &AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call{Call: _e.mock.On("HandleAuthorizationCallback", ctx, authID, assertion, sessionRec)}
 }
 
-func (_c *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call) Run(run func(ctx context.Context, authID string, assertion string)) *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call {
+func (_c *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call) Run(run func(ctx context.Context, authID string, assertion string, sessionRec *session.SessionRecord)) *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -166,11 +168,11 @@ func (_c *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call) Run(ru
 		if args[2] != nil {
 			arg2 = args[2].(string)
 		}
-		run(
-			arg0,
-			arg1,
-			arg2,
-		)
+		var arg3 *session.SessionRecord
+		if args[3] != nil {
+			arg3 = args[3].(*session.SessionRecord)
+		}
+		run(arg0, arg1, arg2, arg3)
 	})
 	return _c
 }
@@ -180,7 +182,7 @@ func (_c *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call) Return
 	return _c
 }
 
-func (_c *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call) RunAndReturn(run func(ctx context.Context, authID string, assertion string) (string, *AuthorizationError)) *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call {
+func (_c *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call) RunAndReturn(run func(ctx context.Context, authID string, assertion string, sessionRec *session.SessionRecord) (string, *AuthorizationError)) *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -40,6 +40,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
 	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
 	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
 	"github.com/thunder-id/thunderid/internal/system/log"
@@ -53,7 +54,12 @@ type AuthorizeServiceInterface interface {
 	HandleInitialAuthorizationRequest(
 		ctx context.Context, msg *OAuthMessage,
 	) (*AuthorizationInitResult, *AuthorizationError)
-	HandleAuthorizationCallback(ctx context.Context, authID string, assertion string) (string, *AuthorizationError)
+	// HandleAuthorizationCallback processes the assertion from the flow engine and issues the
+	// authorization code redirect. sessionRec is the resolved browser session (may be nil for
+	// sessionless flows or when no valid session cookie was present).
+	HandleAuthorizationCallback(
+		ctx context.Context, authID string, assertion string, sessionRec *session.SessionRecord,
+	) (string, *AuthorizationError)
 }
 
 // authorizeService implements the AuthorizeService for managing OAuth2 authorization flows.
@@ -66,6 +72,7 @@ type authorizeService struct {
 	parService      par.PARServiceInterface
 	jwtService      jwt.JWTServiceInterface
 	flowExecService flowexec.FlowExecServiceInterface
+	sessionService  session.SessionServiceInterface
 	transactioner   transaction.Transactioner
 	logger          *log.Logger
 }
@@ -80,6 +87,7 @@ func newAuthorizeService(
 	authReqStore authorizationRequestStoreInterface,
 	parService par.PARServiceInterface,
 	transactioner transaction.Transactioner,
+	sessionService session.SessionServiceInterface,
 ) AuthorizeServiceInterface {
 	return &authorizeService{
 		inboundClient:   inboundClient,
@@ -90,6 +98,7 @@ func newAuthorizeService(
 		parService:      parService,
 		jwtService:      jwtService,
 		flowExecService: flowExecService,
+		sessionService:  sessionService,
 		transactioner:   transactioner,
 		logger:          log.GetLogger().With(log.String(log.LoggerKeyComponentName, "AuthorizeService")),
 	}
@@ -390,8 +399,9 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 
 // HandleAuthorizationCallback processes the callback assertion from the flow engine.
 // Returns the client redirect URI (with authorization code) on success, or a structured error.
-func (as *authorizeService) HandleAuthorizationCallback(ctx context.Context, authID string, assertion string) (
-	string, *AuthorizationError) {
+func (as *authorizeService) HandleAuthorizationCallback(
+	ctx context.Context, authID string, assertion string, sessionRec *session.SessionRecord,
+) (string, *AuthorizationError) {
 	var redirectURI string
 	var authErr *AuthorizationError
 
@@ -502,6 +512,24 @@ func (as *authorizeService) HandleAuthorizationCallback(ctx context.Context, aut
 				State:             authRequestCtx.OAuthParameters.State,
 			}
 			return err
+		}
+
+		// Link the authorization code to the browser session when one is present.
+		if sessionRec != nil && as.sessionService != nil {
+			scopes := utils.ParseStringArray(authzCode.Scopes, " ")
+			cs, csErr := as.sessionService.EnsureClientSession(ctx, sessionRec.SessionID, authzCode.ClientID, scopes)
+			if csErr != nil {
+				authErr = &AuthorizationError{
+					Code:              oauth2const.ErrorServerError,
+					Message:           "Failed to process authorization request",
+					SendErrorToClient: true,
+					ClientRedirectURI: authRequestCtx.OAuthParameters.RedirectURI,
+					State:             authRequestCtx.OAuthParameters.State,
+				}
+				return csErr
+			}
+			authzCode.SessionID = sessionRec.SessionID
+			authzCode.ClientSessionID = cs.ClientSessionID
 		}
 
 		// Persist the authorization code.

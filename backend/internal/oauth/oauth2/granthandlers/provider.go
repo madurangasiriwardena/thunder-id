@@ -28,6 +28,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
 )
 
@@ -57,12 +58,13 @@ func newGrantHandlerProvider(
 	entityProv entityprovider.EntityProviderInterface,
 	resourceService resource.ResourceServiceInterface,
 	cibaService ciba.CIBAServiceInterface,
+	sessionService session.SessionServiceInterface,
 ) GrantHandlerProviderInterface {
 	return &GrantHandlerProvider{
 		clientCredentialsGrantHandler: newClientCredentialsGrantHandler(
 			tokenBuilder, ouService, rbacAuthzService, entityProv, resourceService),
 		authorizationCodeGrantHandler: newAuthorizationCodeGrantHandler(
-			authzService, tokenBuilder, attrCacheService, resourceService),
+			authzService, tokenBuilder, attrCacheService, resourceService, sessionService),
 		refreshTokenGrantHandler: newRefreshTokenGrantHandler(
 			jwtService, tokenBuilder, tokenValidator, attrCacheService, resourceService),
 		tokenExchangeGrantHandler: newTokenExchangeGrantHandler(

@@ -77,6 +77,7 @@ func (suite *GrantHandlerProviderTestSuite) SetupTest() {
 		suite.mockEntityProvider,
 		suite.mockResourceService,
 		suite.mockCIBAService,
+		nil,
 	)
 }
 
@@ -92,6 +93,7 @@ func (suite *GrantHandlerProviderTestSuite) TestNewGrantHandlerProvider() {
 		suite.mockEntityProvider,
 		suite.mockResourceService,
 		suite.mockCIBAService,
+		nil,
 	)
 	assert.NotNil(suite.T(), provider)
 	assert.Implements(suite.T(), (*GrantHandlerProviderInterface)(nil), provider)

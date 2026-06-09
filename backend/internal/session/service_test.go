@@ -74,6 +74,16 @@ func (s *stubStore) GetSessionByHandle(_ context.Context, handleID string) (*Ses
 	return &cp, nil
 }
 
+func (s *stubStore) GetSessionByID(_ context.Context, sessionID string) (*SessionRecord, error) {
+	for _, rec := range s.records {
+		if rec.SessionID == sessionID {
+			cp := *rec
+			return &cp, nil
+		}
+	}
+	return nil, errSessionNotFound
+}
+
 func (s *stubStore) TouchSession(_ context.Context, _ string, _ time.Time, _ int) (bool, error) {
 	s.touchCalls++
 	return s.touchReturn, nil

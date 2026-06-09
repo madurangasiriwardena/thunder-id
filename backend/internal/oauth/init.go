@@ -47,6 +47,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/oauth/scope"
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	syshttp "github.com/thunder-id/thunderid/internal/system/http"
 	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
@@ -74,6 +75,7 @@ func Initialize(
 	resourceService resource.ResourceServiceInterface,
 	i18nService i18nmgt.I18nServiceInterface,
 	idpService idp.IDPServiceInterface,
+	sessionService session.SessionServiceInterface,
 ) error {
 	jwks.Initialize(mux, runtimeCrypto)
 	httpClient := syshttp.NewHTTPClientWithCheckRedirect(func(req *http.Request, _ []*http.Request) error {
@@ -90,19 +92,19 @@ func Initialize(
 	cibaService := ciba.Initialize(mux, jwtService, inboundClient, authnProvider, flowExecService,
 		discoveryService, resourceService)
 	oauth2AuthzService, err := oauth2authz.Initialize(mux, inboundClient, resourceService,
-		jwtService, flowExecService, parService)
+		jwtService, flowExecService, parService, sessionService)
 	if err != nil {
 		return err
 	}
 	grantHandlerProvider := granthandlers.Initialize(
 		jwtService, oauth2AuthzService, tokenBuilder, tokenValidator,
-		attributeCacheSvc, ouService, authzService, entityProvider, resourceService, cibaService)
+		attributeCacheSvc, ouService, authzService, entityProvider, resourceService, cibaService, sessionService)
 	token.Initialize(mux, jwtService, inboundClient, authnProvider, grantHandlerProvider,
 		scopeValidator, observabilitySvc, discoveryService, dpopVerifier)
 	introspect.Initialize(mux, jwtService, inboundClient, authnProvider, discoveryService)
 	userinfo.Initialize(mux, jwtService, jweService, resolver,
 		tokenValidator, inboundClient, attributeCacheSvc,
 		discoveryService, dpopVerifier)
-	callback.Initialize(mux, oauth2AuthzService, cibaService)
+	callback.Initialize(mux, oauth2AuthzService, cibaService, sessionService)
 	return nil
 }

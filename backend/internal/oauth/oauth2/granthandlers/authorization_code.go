@@ -35,6 +35,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/tokenservice"
 	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
 	"github.com/thunder-id/thunderid/internal/resource"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/log"
 )
 
@@ -44,6 +45,7 @@ type authorizationCodeGrantHandler struct {
 	tokenBuilder    tokenservice.TokenBuilderInterface
 	attributeCache  attributecache.AttributeCacheServiceInterface
 	resourceService resource.ResourceServiceInterface
+	sessionService  session.SessionServiceInterface
 }
 
 // newAuthorizationCodeGrantHandler creates a new instance of AuthorizationCodeGrantHandler.
@@ -52,12 +54,14 @@ func newAuthorizationCodeGrantHandler(
 	tokenBuilder tokenservice.TokenBuilderInterface,
 	attributeCache attributecache.AttributeCacheServiceInterface,
 	resourceService resource.ResourceServiceInterface,
+	sessionService session.SessionServiceInterface,
 ) GrantHandlerInterface {
 	return &authorizationCodeGrantHandler{
 		authzService:    authzService,
 		tokenBuilder:    tokenBuilder,
 		attributeCache:  attributeCache,
 		resourceService: resourceService,
+		sessionService:  sessionService,
 	}
 }
 
@@ -216,7 +220,7 @@ func (h *authorizationCodeGrantHandler) HandleGrant(ctx context.Context, tokenRe
 
 	// Generate ID token if 'openid' scope is present
 	if slices.Contains(accessTokenScopes, constants.ScopeOpenID) {
-		idToken, err := h.tokenBuilder.BuildIDToken(ctx, &tokenservice.IDTokenBuildContext{
+		idTokenCtx := &tokenservice.IDTokenBuildContext{
 			Subject:        authCode.AuthorizedUserID,
 			Audience:       tokenRequest.ClientID,
 			Scopes:         accessTokenScopes,
@@ -226,7 +230,22 @@ func (h *authorizationCodeGrantHandler) HandleGrant(ctx context.Context, tokenRe
 			ClaimsRequest:  authCode.ClaimsRequest,
 			Nonce:          authCode.Nonce,
 			CompletedACR:   authCode.CompletedACR,
-		})
+		}
+
+		// Override auth_time, acr, and set sid when the code carries session linkage.
+		if authCode.SessionID != "" && authCode.ClientSessionID != "" && h.sessionService != nil {
+			sessionRec, sessionErr := h.sessionService.GetSessionByID(ctx, authCode.SessionID)
+			cs, csErr := h.sessionService.GetClientSessionByID(ctx, authCode.ClientSessionID)
+			if sessionErr == nil && csErr == nil && sessionRec != nil && cs != nil {
+				idTokenCtx.SID = cs.OIDCSID
+				idTokenCtx.AuthTime = sessionRec.AuthenticatedAt.Unix()
+				idTokenCtx.CompletedACR = sessionRec.AssuranceLevel
+			} else {
+				logger.DebugWithContext(ctx, "Session lookup failed for ID token; using auth code values")
+			}
+		}
+
+		idToken, err := h.tokenBuilder.BuildIDToken(ctx, idTokenCtx)
 		if err != nil {
 			logger.Error(ctx, "Failed to generate ID token", log.Error(err))
 			return nil, &model.ErrorResponse{
