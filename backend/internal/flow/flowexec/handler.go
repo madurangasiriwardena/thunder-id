@@ -22,6 +22,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/error/apierror"
 	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 	"github.com/thunder-id/thunderid/internal/system/log"
@@ -82,6 +83,10 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 		Assertion:      flowStep.Assertion,
 		Error:          stepErrorResp,
 		ChallengeToken: flowStep.ChallengeToken,
+	}
+
+	if flowStep.SessionHandle != "" {
+		http.SetCookie(w, session.NewSessionCookie(flowStep.SessionHandle))
 	}
 
 	sysutils.WriteSuccessResponse(r.Context(), w, http.StatusOK, flowResp)

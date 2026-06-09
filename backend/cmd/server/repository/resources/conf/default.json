@@ -239,6 +239,11 @@
     "timeout": 5,
     "max_retries": 3
   },
+  "session": {
+    "default_mode": "managed",
+    "idle_timeout": 1800,
+    "absolute_timeout": 43200
+  },
   "user_provider": {
     "type": "default"
   },

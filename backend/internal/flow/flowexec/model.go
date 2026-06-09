@@ -76,6 +76,9 @@ type FlowStep struct {
 	Data           FlowData
 	Assertion      string
 	Error          *serviceerror.ServiceError
+	// SessionHandle is the opaque session handle to be delivered as a cookie.
+	// It is never serialized into FlowResponse — only the HTTP handler reads it.
+	SessionHandle string
 }
 
 // FlowData holds the data returned by a flow execution step

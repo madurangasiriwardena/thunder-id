@@ -316,3 +316,11 @@ packages:
       structname: '{{.InterfaceName}}Mock'
       pkgname: template
       filename: "{{.InterfaceName}}_mock_test.go"
+
+  github.com/thunder-id/thunderid/internal/session:
+    config:
+      all: true
+      dir: internal/session
+      structname: '{{.InterfaceName}}Mock'
+      pkgname: session
+      filename: "{{.InterfaceName}}_mock_test.go"

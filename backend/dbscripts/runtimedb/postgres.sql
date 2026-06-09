@@ -114,3 +114,34 @@ CREATE TABLE "JTI_RECORD" (
 
 -- Index for expiry time on JTI_RECORD (supports cleanup and expiry checks)
 CREATE INDEX idx_jti_record_expiry_time ON "JTI_RECORD" (EXPIRY_TIME);
+
+-- Table to store browser SSO session records. SESSION_ID is internal only; HANDLE_ID
+-- is the opaque handle sent to the client via the __Host-tid_session cookie.
+CREATE TABLE "SESSION_RECORD" (
+    DEPLOYMENT_ID       VARCHAR(255) NOT NULL,
+    SESSION_ID          VARCHAR(36)  NOT NULL,
+    SUBJECT_ID          VARCHAR(255) NOT NULL,
+    SESSION_GROUP_ID    VARCHAR(255) NOT NULL,
+    AUTHENTICATED_AT    TIMESTAMP    NOT NULL,
+    ASSURANCE_LEVEL     VARCHAR(255) NOT NULL,
+    CREATED_AT          TIMESTAMP    NOT NULL,
+    LAST_ACTIVE_AT      TIMESTAMP    NOT NULL,
+    IDLE_EXPIRES_AT     TIMESTAMP    NOT NULL,
+    ABSOLUTE_EXPIRES_AT TIMESTAMP    NOT NULL,
+    HANDLE_ID           VARCHAR(36)  NOT NULL,
+    HANDLE_ISSUED_AT    TIMESTAMP    NOT NULL,
+    HANDLE_EXPIRES_AT   TIMESTAMP    NOT NULL,
+    BINDING_TYPE        VARCHAR(64)  NOT NULL,
+    SESSION_STATE       VARCHAR(32)  NOT NULL,
+    VERSION             INTEGER      NOT NULL DEFAULT 0,
+    PRIMARY KEY (SESSION_ID, DEPLOYMENT_ID)
+);
+
+-- Unique index on HANDLE_ID scoped to DEPLOYMENT_ID (the cookie lookup hot path)
+CREATE UNIQUE INDEX idx_session_record_handle ON "SESSION_RECORD" (HANDLE_ID, DEPLOYMENT_ID);
+
+-- Index for subject-based session lookup
+CREATE INDEX idx_session_record_subject ON "SESSION_RECORD" (SUBJECT_ID, DEPLOYMENT_ID);
+
+-- Index for expiry-based cleanup jobs
+CREATE INDEX idx_session_record_absolute_expiry ON "SESSION_RECORD" (ABSOLUTE_EXPIRES_AT);

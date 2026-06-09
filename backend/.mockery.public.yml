@@ -562,3 +562,12 @@ packages:
       structname: '{{.InterfaceName}}Mock'
       pkgname: templatemock
       filename: "{{.InterfaceName}}_mock.go"
+
+  github.com/thunder-id/thunderid/internal/session:
+    interfaces:
+      SessionServiceInterface:
+        config:
+          dir: tests/mocks/session/sessionmock
+          structname: '{{.InterfaceName}}Mock'
+          pkgname: sessionmock
+          filename: "{{.InterfaceName}}_mock.go"

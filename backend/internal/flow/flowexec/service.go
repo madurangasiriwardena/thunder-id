@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	appmodel "github.com/thunder-id/thunderid/internal/application/model"
 	"github.com/thunder-id/thunderid/internal/entityprovider"
@@ -31,6 +32,7 @@ import (
 	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	sysContext "github.com/thunder-id/thunderid/internal/system/context"
 	"github.com/thunder-id/thunderid/internal/system/cryptolib"
@@ -69,6 +71,7 @@ type flowExecService struct {
 	observabilitySvc     observability.ObservabilityServiceInterface
 	transactioner        transaction.Transactioner
 	cryptoSvc            kmprovider.RuntimeCryptoProvider
+	sessionService       session.SessionServiceInterface
 }
 
 func newFlowExecService(flowMgtService flowmgt.FlowMgtServiceInterface,
@@ -77,7 +80,8 @@ func newFlowExecService(flowMgtService flowmgt.FlowMgtServiceInterface,
 	entityProvider entityprovider.EntityProviderInterface,
 	observabilitySvc observability.ObservabilityServiceInterface,
 	transactioner transaction.Transactioner,
-	cryptoSvc kmprovider.RuntimeCryptoProvider) FlowExecServiceInterface {
+	cryptoSvc kmprovider.RuntimeCryptoProvider,
+	sessionService session.SessionServiceInterface) FlowExecServiceInterface {
 	return &flowExecService{
 		flowMgtService:       flowMgtService,
 		flowStore:            flowStore,
@@ -87,6 +91,7 @@ func newFlowExecService(flowMgtService flowmgt.FlowMgtServiceInterface,
 		observabilitySvc:     observabilitySvc,
 		transactioner:        transactioner,
 		cryptoSvc:            cryptoSvc,
+		sessionService:       sessionService,
 	}
 }
 
@@ -160,6 +165,23 @@ func (s *flowExecService) Execute(ctx context.Context,
 				logger.Error(ctx, "Failed to remove flow context after completion",
 					log.String(log.LoggerKeyExecutionID, engineCtx.ExecutionID), log.Error(removeErr))
 				return nil, &serviceerror.InternalServerError
+			}
+		}
+
+		if engineCtx.AuthenticatedUser.IsAuthenticated && s.sessionService != nil {
+			sessionInput := session.CreateSessionInput{
+				SubjectID:       engineCtx.AuthenticatedUser.UserID,
+				AppID:           engineCtx.AppID,
+				AuthenticatedAt: time.Now().UTC(),
+			}
+			sessionRec, sessionErr := s.sessionService.CreateSessionFromFlow(ctx, sessionInput)
+			if sessionErr != nil {
+				logger.ErrorWithContext(ctx, "Failed to create session after flow completion",
+					log.String(log.LoggerKeyExecutionID, engineCtx.ExecutionID), log.Error(sessionErr))
+				return nil, &serviceerror.InternalServerError
+			}
+			if sessionRec != nil {
+				flowStep.SessionHandle = sessionRec.HandleID
 			}
 		}
 	} else {

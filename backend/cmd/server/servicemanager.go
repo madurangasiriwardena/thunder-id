@@ -65,6 +65,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/cache"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/cryptolib"
@@ -380,8 +381,10 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 		agentService,
 	)
 
+	sessionService := session.Initialize(mux)
+
 	flowExecService, err := flowexec.Initialize(mux, flowMgtService, inboundClientService, entityProvider,
-		execRegistry, observabilitySvc, runtimeCryptoSvc)
+		execRegistry, observabilitySvc, runtimeCryptoSvc, sessionService)
 	if err != nil {
 		logger.Fatal(ctx, "Failed to initialize flow execution service", log.Error(err))
 	}

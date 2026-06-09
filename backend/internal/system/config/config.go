@@ -639,6 +639,32 @@ type ConsentConfig struct {
 	MaxRetries int    `yaml:"max_retries" json:"max_retries"` // Max retry attempts for transient errors. Default: 3
 }
 
+// SessionConfig holds the configuration for browser SSO session management.
+type SessionConfig struct {
+	// DefaultMode controls whether sessions are created for apps. Valid values:
+	// "managed" (default) — create a durable session on login.
+	// "sessionless" — disable session creation for the group.
+	DefaultMode string `yaml:"default_mode" json:"default_mode"`
+	// IdleTimeout is the inactivity timeout in seconds (default: 1800).
+	IdleTimeout int `yaml:"idle_timeout" json:"idle_timeout"`
+	// AbsoluteTimeout is the hard upper limit for a session's lifetime in seconds (default: 43200).
+	AbsoluteTimeout int `yaml:"absolute_timeout" json:"absolute_timeout"`
+}
+
+// Validate checks SessionConfig for configuration errors.
+func (c *SessionConfig) Validate() error {
+	if c.DefaultMode != "" && c.DefaultMode != "managed" && c.DefaultMode != "sessionless" {
+		return fmt.Errorf("session.default_mode must be \"managed\" or \"sessionless\", got %q", c.DefaultMode)
+	}
+	if c.IdleTimeout < 0 {
+		return fmt.Errorf("session.idle_timeout must be >= 0")
+	}
+	if c.AbsoluteTimeout < 0 {
+		return fmt.Errorf("session.absolute_timeout must be >= 0")
+	}
+	return nil
+}
+
 // RequiredClaim defines a claim name and expected value that must be present in the token.
 type RequiredClaim struct {
 	Claim string `yaml:"claim" json:"claim"`
@@ -780,6 +806,7 @@ type Config struct {
 	Translation          TranslationConfig      `yaml:"translation" json:"translation"`
 	Email                EmailConfig            `yaml:"email" json:"email"`
 	Consent              ConsentConfig          `yaml:"consent" json:"consent"`
+	Session              SessionConfig          `yaml:"session" json:"session"`
 }
 
 // LoadConfig loads the configurations from the specified YAML file and applies defaults.

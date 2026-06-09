@@ -25,6 +25,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/flow/executor"
 	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	dbprovider "github.com/thunder-id/thunderid/internal/system/database/provider"
 	kmprovider "github.com/thunder-id/thunderid/internal/system/kmprovider/common"
@@ -35,6 +36,7 @@ import (
 
 // Initialize creates and configures the flow execution service components.
 // The observabilitySvc parameter is optional (can be nil) - if nil, observability events won't be published.
+// The sessionService parameter is optional (can be nil) - if nil, session creation is skipped.
 func Initialize(
 	mux *http.ServeMux,
 	flowMgtService flowmgt.FlowMgtServiceInterface,
@@ -43,6 +45,7 @@ func Initialize(
 	executorRegistry executor.ExecutorRegistryInterface,
 	observabilitySvc observability.ObservabilityServiceInterface,
 	cryptoSvc kmprovider.RuntimeCryptoProvider,
+	sessionService session.SessionServiceInterface,
 ) (FlowExecServiceInterface, error) {
 	var flowStore flowStoreInterface
 	var transactioner transaction.Transactioner
@@ -61,7 +64,7 @@ func Initialize(
 	}
 	flowEngine := newFlowEngine(executorRegistry, observabilitySvc)
 	flowExecService := newFlowExecService(flowMgtService, flowStore, flowEngine,
-		inboundClientService, entityProvider, observabilitySvc, transactioner, cryptoSvc)
+		inboundClientService, entityProvider, observabilitySvc, transactioner, cryptoSvc, sessionService)
 
 	handler := newFlowExecutionHandler(flowExecService)
 	registerRoutes(mux, handler)
