@@ -101,6 +101,20 @@ func (s *stubStore) GetActiveSessionBySubjectAndGroup(
 	return nil, errSessionNotFound
 }
 
+func (s *stubStore) UpdateSessionAuth(
+	_ context.Context, sessionID string, factors []AuthFactor, assuranceLevel string, authenticatedAt time.Time,
+) error {
+	for _, rec := range s.records {
+		if rec.SessionID == sessionID {
+			rec.AuthFactors = factors
+			rec.AssuranceLevel = assuranceLevel
+			rec.AuthenticatedAt = authenticatedAt
+			return nil
+		}
+	}
+	return errSessionNotFound
+}
+
 func TestCreateSessionFromFlow_ManagedGroup(t *testing.T) {
 	initTestConfig(t)
 	store := newStubStore()

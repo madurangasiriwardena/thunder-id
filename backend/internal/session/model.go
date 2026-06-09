@@ -67,6 +67,12 @@ type SessionGroup struct {
 	Mode SessionMode
 }
 
+// AuthFactor records a completed authentication factor in a session.
+type AuthFactor struct {
+	Authenticator string `json:"authenticator"`
+	AuthTime      int64  `json:"authTime"`
+}
+
 // SessionRecord is the protocol-free durable entity that represents a browser SSO session.
 // SessionID is internal only; only HandleID is exposed to the client via cookie.
 type SessionRecord struct {
@@ -75,6 +81,7 @@ type SessionRecord struct {
 	SessionGroupID    string
 	AuthenticatedAt   time.Time
 	AssuranceLevel    string
+	AuthFactors       []AuthFactor
 	CreatedAt         time.Time
 	LastActiveAt      time.Time
 	IdleExpiresAt     time.Time

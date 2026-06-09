@@ -172,7 +172,12 @@ func (_c *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call) Run(ru
 		if args[3] != nil {
 			arg3 = args[3].(*session.SessionRecord)
 		}
-		run(arg0, arg1, arg2, arg3)
+		run(
+			arg0,
+			arg1,
+			arg2,
+			arg3,
+		)
 	})
 	return _c
 }
@@ -244,7 +249,11 @@ func (_c *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call) 
 		if args[2] != nil {
 			arg2 = args[2].(*session.SessionRecord)
 		}
-		run(arg0, arg1, arg2)
+		run(
+			arg0,
+			arg1,
+			arg2,
+		)
 	})
 	return _c
 }

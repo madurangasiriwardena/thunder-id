@@ -148,9 +148,9 @@ func (acs *authorizationCodeStore) getJSONDataBytes(authzCode AuthorizationCode)
 		jsonDataKeyCodeChallengeMethod: authzCode.CodeChallengeMethod,
 		jsonDataKeyResource:            authzCode.Resources,
 		jsonDataKeyClaimsLocales:       authzCode.ClaimsLocales,
-		jsonDataKeyNonce:        authzCode.Nonce,
-		jsonDataKeyCompletedACR: authzCode.CompletedACR,
-		jsonDataKeyDPoPJkt:      authzCode.DPoPJkt,
+		jsonDataKeyNonce:               authzCode.Nonce,
+		jsonDataKeyCompletedACR:        authzCode.CompletedACR,
+		jsonDataKeyDPoPJkt:             authzCode.DPoPJkt,
 	}
 
 	if authzCode.SessionID != "" {

@@ -20,6 +20,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -42,6 +43,11 @@ type SessionRecordStoreInterface interface {
 	// GetActiveSessionBySubjectAndGroup retrieves the single ACTIVE SessionRecord for a
 	// (subjectID, groupID) pair. Returns errSessionNotFound when none exists.
 	GetActiveSessionBySubjectAndGroup(ctx context.Context, subjectID, groupID string) (*SessionRecord, error)
+	// UpdateSessionAuth updates AUTH_FACTORS, ASSURANCE_LEVEL, and AUTHENTICATED_AT on an
+	// existing session during SSO factor augmentation.
+	UpdateSessionAuth(
+		ctx context.Context, sessionID string, factors []AuthFactor, assuranceLevel string, authenticatedAt time.Time,
+	) error
 }
 
 // sessionRecordStore is the runtime-DB-backed implementation.
@@ -65,6 +71,11 @@ func (s *sessionRecordStore) CreateSession(ctx context.Context, rec SessionRecor
 		return fmt.Errorf("failed to get database client: %w", err)
 	}
 
+	authFactorsJSON, err := marshalAuthFactors(rec.AuthFactors)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth factors: %w", err)
+	}
+
 	_, err = dbClient.ExecuteContext(ctx, queryCreateSession,
 		s.deploymentID,
 		rec.SessionID,
@@ -81,10 +92,38 @@ func (s *sessionRecordStore) CreateSession(ctx context.Context, rec SessionRecor
 		rec.HandleExpiresAt.UTC(),
 		rec.Binding.Type,
 		string(rec.State),
+		authFactorsJSON,
 		rec.Version,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert session record: %w", err)
+	}
+	return nil
+}
+
+// UpdateSessionAuth updates AUTH_FACTORS, ASSURANCE_LEVEL, and AUTHENTICATED_AT on an existing session.
+func (s *sessionRecordStore) UpdateSessionAuth(
+	ctx context.Context, sessionID string, factors []AuthFactor, assuranceLevel string, authenticatedAt time.Time,
+) error {
+	dbClient, err := s.dbProvider.GetRuntimeDBClient()
+	if err != nil {
+		return fmt.Errorf("failed to get database client: %w", err)
+	}
+
+	authFactorsJSON, err := marshalAuthFactors(factors)
+	if err != nil {
+		return fmt.Errorf("failed to marshal auth factors: %w", err)
+	}
+
+	_, err = dbClient.ExecuteContext(ctx, queryUpdateSessionAuth,
+		sessionID,
+		authFactorsJSON,
+		assuranceLevel,
+		authenticatedAt.UTC(),
+		s.deploymentID,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to update session auth: %w", err)
 	}
 	return nil
 }
@@ -242,12 +281,15 @@ func (s *sessionRecordStore) buildFromRow(row map[string]interface{}) (*SessionR
 		return nil, err
 	}
 
+	authFactors := unmarshalAuthFactors(row["auth_factors"])
+
 	return &SessionRecord{
 		SessionID:         sessionID,
 		SubjectID:         subjectID,
 		SessionGroupID:    groupID,
 		AuthenticatedAt:   authenticatedAt,
 		AssuranceLevel:    assuranceLevel,
+		AuthFactors:       authFactors,
 		CreatedAt:         createdAt,
 		LastActiveAt:      lastActiveAt,
 		IdleExpiresAt:     idleExpiresAt,
@@ -259,6 +301,43 @@ func (s *sessionRecordStore) buildFromRow(row map[string]interface{}) (*SessionR
 		State:             SessionState(stateStr),
 		Version:           version,
 	}, nil
+}
+
+// marshalAuthFactors serializes []AuthFactor to a JSON string, returning nil for empty/nil slices.
+func marshalAuthFactors(factors []AuthFactor) (interface{}, error) {
+	if len(factors) == 0 {
+		return nil, nil
+	}
+	b, err := json.Marshal(factors)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+// unmarshalAuthFactors deserializes the auth_factors column value into []AuthFactor.
+// Returns nil (not an error) for NULL, empty, or unparseable values.
+func unmarshalAuthFactors(raw interface{}) []AuthFactor {
+	if raw == nil {
+		return nil
+	}
+	var s string
+	switch v := raw.(type) {
+	case string:
+		s = v
+	case []byte:
+		s = string(v)
+	default:
+		return nil
+	}
+	if s == "" || s == "null" {
+		return nil
+	}
+	var factors []AuthFactor
+	if err := json.Unmarshal([]byte(s), &factors); err != nil {
+		return nil
+	}
+	return factors
 }
 
 func (s *sessionRecordStore) requireString(row map[string]interface{}, key string) (string, error) {

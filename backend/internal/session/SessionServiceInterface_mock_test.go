@@ -2,14 +2,13 @@
 // github.com/vektra/mockery
 // template: testify
 
-package sessionmock
+package session
 
 import (
 	"context"
 	"net/http"
 
 	mock "github.com/stretchr/testify/mock"
-	"github.com/thunder-id/thunderid/internal/session"
 )
 
 // NewSessionServiceInterfaceMock creates a new instance of SessionServiceInterfaceMock. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
@@ -40,26 +39,26 @@ func (_m *SessionServiceInterfaceMock) EXPECT() *SessionServiceInterfaceMock_Exp
 }
 
 // CreateSessionFromFlow provides a mock function for the type SessionServiceInterfaceMock
-func (_mock *SessionServiceInterfaceMock) CreateSessionFromFlow(ctx context.Context, in session.CreateSessionInput) (*session.SessionRecord, error) {
+func (_mock *SessionServiceInterfaceMock) CreateSessionFromFlow(ctx context.Context, in CreateSessionInput) (*SessionRecord, error) {
 	ret := _mock.Called(ctx, in)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateSessionFromFlow")
 	}
 
-	var r0 *session.SessionRecord
+	var r0 *SessionRecord
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, session.CreateSessionInput) (*session.SessionRecord, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, CreateSessionInput) (*SessionRecord, error)); ok {
 		return returnFunc(ctx, in)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, session.CreateSessionInput) *session.SessionRecord); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, CreateSessionInput) *SessionRecord); ok {
 		r0 = returnFunc(ctx, in)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*session.SessionRecord)
+			r0 = ret.Get(0).(*SessionRecord)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, session.CreateSessionInput) error); ok {
+	if returnFunc, ok := ret.Get(1).(func(context.Context, CreateSessionInput) error); ok {
 		r1 = returnFunc(ctx, in)
 	} else {
 		r1 = ret.Error(1)
@@ -74,20 +73,20 @@ type SessionServiceInterfaceMock_CreateSessionFromFlow_Call struct {
 
 // CreateSessionFromFlow is a helper method to define mock.On call
 //   - ctx context.Context
-//   - in session.CreateSessionInput
+//   - in CreateSessionInput
 func (_e *SessionServiceInterfaceMock_Expecter) CreateSessionFromFlow(ctx interface{}, in interface{}) *SessionServiceInterfaceMock_CreateSessionFromFlow_Call {
 	return &SessionServiceInterfaceMock_CreateSessionFromFlow_Call{Call: _e.mock.On("CreateSessionFromFlow", ctx, in)}
 }
 
-func (_c *SessionServiceInterfaceMock_CreateSessionFromFlow_Call) Run(run func(ctx context.Context, in session.CreateSessionInput)) *SessionServiceInterfaceMock_CreateSessionFromFlow_Call {
+func (_c *SessionServiceInterfaceMock_CreateSessionFromFlow_Call) Run(run func(ctx context.Context, in CreateSessionInput)) *SessionServiceInterfaceMock_CreateSessionFromFlow_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
 			arg0 = args[0].(context.Context)
 		}
-		var arg1 session.CreateSessionInput
+		var arg1 CreateSessionInput
 		if args[1] != nil {
-			arg1 = args[1].(session.CreateSessionInput)
+			arg1 = args[1].(CreateSessionInput)
 		}
 		run(
 			arg0,
@@ -97,34 +96,34 @@ func (_c *SessionServiceInterfaceMock_CreateSessionFromFlow_Call) Run(run func(c
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_CreateSessionFromFlow_Call) Return(sessionRecord *session.SessionRecord, err error) *SessionServiceInterfaceMock_CreateSessionFromFlow_Call {
+func (_c *SessionServiceInterfaceMock_CreateSessionFromFlow_Call) Return(sessionRecord *SessionRecord, err error) *SessionServiceInterfaceMock_CreateSessionFromFlow_Call {
 	_c.Call.Return(sessionRecord, err)
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_CreateSessionFromFlow_Call) RunAndReturn(run func(ctx context.Context, in session.CreateSessionInput) (*session.SessionRecord, error)) *SessionServiceInterfaceMock_CreateSessionFromFlow_Call {
+func (_c *SessionServiceInterfaceMock_CreateSessionFromFlow_Call) RunAndReturn(run func(ctx context.Context, in CreateSessionInput) (*SessionRecord, error)) *SessionServiceInterfaceMock_CreateSessionFromFlow_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // EnsureClientSession provides a mock function for the type SessionServiceInterfaceMock
-func (_mock *SessionServiceInterfaceMock) EnsureClientSession(ctx context.Context, sessionID string, clientID string, grantedScopes []string) (*session.ClientSession, error) {
+func (_mock *SessionServiceInterfaceMock) EnsureClientSession(ctx context.Context, sessionID string, clientID string, grantedScopes []string) (*ClientSession, error) {
 	ret := _mock.Called(ctx, sessionID, clientID, grantedScopes)
 
 	if len(ret) == 0 {
 		panic("no return value specified for EnsureClientSession")
 	}
 
-	var r0 *session.ClientSession
+	var r0 *ClientSession
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, []string) (*session.ClientSession, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, []string) (*ClientSession, error)); ok {
 		return returnFunc(ctx, sessionID, clientID, grantedScopes)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, []string) *session.ClientSession); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, []string) *ClientSession); ok {
 		r0 = returnFunc(ctx, sessionID, clientID, grantedScopes)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*session.ClientSession)
+			r0 = ret.Get(0).(*ClientSession)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, []string) error); ok {
@@ -177,34 +176,34 @@ func (_c *SessionServiceInterfaceMock_EnsureClientSession_Call) Run(run func(ctx
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_EnsureClientSession_Call) Return(clientSession *session.ClientSession, err error) *SessionServiceInterfaceMock_EnsureClientSession_Call {
+func (_c *SessionServiceInterfaceMock_EnsureClientSession_Call) Return(clientSession *ClientSession, err error) *SessionServiceInterfaceMock_EnsureClientSession_Call {
 	_c.Call.Return(clientSession, err)
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_EnsureClientSession_Call) RunAndReturn(run func(ctx context.Context, sessionID string, clientID string, grantedScopes []string) (*session.ClientSession, error)) *SessionServiceInterfaceMock_EnsureClientSession_Call {
+func (_c *SessionServiceInterfaceMock_EnsureClientSession_Call) RunAndReturn(run func(ctx context.Context, sessionID string, clientID string, grantedScopes []string) (*ClientSession, error)) *SessionServiceInterfaceMock_EnsureClientSession_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetClientSessionByID provides a mock function for the type SessionServiceInterfaceMock
-func (_mock *SessionServiceInterfaceMock) GetClientSessionByID(ctx context.Context, clientSessionID string) (*session.ClientSession, error) {
+func (_mock *SessionServiceInterfaceMock) GetClientSessionByID(ctx context.Context, clientSessionID string) (*ClientSession, error) {
 	ret := _mock.Called(ctx, clientSessionID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetClientSessionByID")
 	}
 
-	var r0 *session.ClientSession
+	var r0 *ClientSession
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*session.ClientSession, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*ClientSession, error)); ok {
 		return returnFunc(ctx, clientSessionID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *session.ClientSession); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *ClientSession); ok {
 		r0 = returnFunc(ctx, clientSessionID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*session.ClientSession)
+			r0 = ret.Get(0).(*ClientSession)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
@@ -245,34 +244,34 @@ func (_c *SessionServiceInterfaceMock_GetClientSessionByID_Call) Run(run func(ct
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_GetClientSessionByID_Call) Return(clientSession *session.ClientSession, err error) *SessionServiceInterfaceMock_GetClientSessionByID_Call {
+func (_c *SessionServiceInterfaceMock_GetClientSessionByID_Call) Return(clientSession *ClientSession, err error) *SessionServiceInterfaceMock_GetClientSessionByID_Call {
 	_c.Call.Return(clientSession, err)
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_GetClientSessionByID_Call) RunAndReturn(run func(ctx context.Context, clientSessionID string) (*session.ClientSession, error)) *SessionServiceInterfaceMock_GetClientSessionByID_Call {
+func (_c *SessionServiceInterfaceMock_GetClientSessionByID_Call) RunAndReturn(run func(ctx context.Context, clientSessionID string) (*ClientSession, error)) *SessionServiceInterfaceMock_GetClientSessionByID_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // GetSessionByID provides a mock function for the type SessionServiceInterfaceMock
-func (_mock *SessionServiceInterfaceMock) GetSessionByID(ctx context.Context, sessionID string) (*session.SessionRecord, error) {
+func (_mock *SessionServiceInterfaceMock) GetSessionByID(ctx context.Context, sessionID string) (*SessionRecord, error) {
 	ret := _mock.Called(ctx, sessionID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetSessionByID")
 	}
 
-	var r0 *session.SessionRecord
+	var r0 *SessionRecord
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*session.SessionRecord, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) (*SessionRecord, error)); ok {
 		return returnFunc(ctx, sessionID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *session.SessionRecord); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string) *SessionRecord); ok {
 		r0 = returnFunc(ctx, sessionID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*session.SessionRecord)
+			r0 = ret.Get(0).(*SessionRecord)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, string) error); ok {
@@ -313,34 +312,34 @@ func (_c *SessionServiceInterfaceMock_GetSessionByID_Call) Run(run func(ctx cont
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_GetSessionByID_Call) Return(sessionRecord *session.SessionRecord, err error) *SessionServiceInterfaceMock_GetSessionByID_Call {
+func (_c *SessionServiceInterfaceMock_GetSessionByID_Call) Return(sessionRecord *SessionRecord, err error) *SessionServiceInterfaceMock_GetSessionByID_Call {
 	_c.Call.Return(sessionRecord, err)
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_GetSessionByID_Call) RunAndReturn(run func(ctx context.Context, sessionID string) (*session.SessionRecord, error)) *SessionServiceInterfaceMock_GetSessionByID_Call {
+func (_c *SessionServiceInterfaceMock_GetSessionByID_Call) RunAndReturn(run func(ctx context.Context, sessionID string) (*SessionRecord, error)) *SessionServiceInterfaceMock_GetSessionByID_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // ResolveSession provides a mock function for the type SessionServiceInterfaceMock
-func (_mock *SessionServiceInterfaceMock) ResolveSession(ctx context.Context, r *http.Request) (*session.SessionRecord, error) {
+func (_mock *SessionServiceInterfaceMock) ResolveSession(ctx context.Context, r *http.Request) (*SessionRecord, error) {
 	ret := _mock.Called(ctx, r)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResolveSession")
 	}
 
-	var r0 *session.SessionRecord
+	var r0 *SessionRecord
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *http.Request) (*session.SessionRecord, error)); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *http.Request) (*SessionRecord, error)); ok {
 		return returnFunc(ctx, r)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *http.Request) *session.SessionRecord); ok {
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *http.Request) *SessionRecord); ok {
 		r0 = returnFunc(ctx, r)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*session.SessionRecord)
+			r0 = ret.Get(0).(*SessionRecord)
 		}
 	}
 	if returnFunc, ok := ret.Get(1).(func(context.Context, *http.Request) error); ok {
@@ -381,12 +380,12 @@ func (_c *SessionServiceInterfaceMock_ResolveSession_Call) Run(run func(ctx cont
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_ResolveSession_Call) Return(sessionRecord *session.SessionRecord, err error) *SessionServiceInterfaceMock_ResolveSession_Call {
+func (_c *SessionServiceInterfaceMock_ResolveSession_Call) Return(sessionRecord *SessionRecord, err error) *SessionServiceInterfaceMock_ResolveSession_Call {
 	_c.Call.Return(sessionRecord, err)
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_ResolveSession_Call) RunAndReturn(run func(ctx context.Context, r *http.Request) (*session.SessionRecord, error)) *SessionServiceInterfaceMock_ResolveSession_Call {
+func (_c *SessionServiceInterfaceMock_ResolveSession_Call) RunAndReturn(run func(ctx context.Context, r *http.Request) (*SessionRecord, error)) *SessionServiceInterfaceMock_ResolveSession_Call {
 	_c.Call.Return(run)
 	return _c
 }

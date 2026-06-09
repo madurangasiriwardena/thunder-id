@@ -273,6 +273,7 @@ const (
 	ErrorUnsupportedResponseType  string = "unsupported_response_type"
 	ErrorAccessDenied             string = "access_denied"
 	ErrorLoginRequired            string = "login_required"
+	ErrorInteractionRequired      string = "interaction_required"
 	ErrorConsentRequired          string = "consent_required"
 	ErrorAccountSelectionRequired string = "account_selection_required"
 	ErrorInvalidDPoPProof         string = "invalid_dpop_proof"

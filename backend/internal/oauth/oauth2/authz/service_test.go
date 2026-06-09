@@ -421,13 +421,17 @@ func (suite *AuthorizeServiceTestSuite) newServiceWithSession(svc session.Sessio
 // stubSessionSvc is an inline stub that satisfies session.SessionServiceInterface for Phase C tests.
 type stubSessionSvc struct{}
 
-func (s *stubSessionSvc) CreateSessionFromFlow(_ context.Context, _ session.CreateSessionInput) (*session.SessionRecord, error) {
+func (s *stubSessionSvc) CreateSessionFromFlow(
+	_ context.Context, _ session.CreateSessionInput,
+) (*session.SessionRecord, error) {
 	return nil, nil
 }
 func (s *stubSessionSvc) ResolveSession(_ context.Context, _ *http.Request) (*session.SessionRecord, error) {
 	return nil, nil
 }
-func (s *stubSessionSvc) EnsureClientSession(_ context.Context, _, _ string, _ []string) (*session.ClientSession, error) {
+func (s *stubSessionSvc) EnsureClientSession(
+	_ context.Context, _, _ string, _ []string,
+) (*session.ClientSession, error) {
 	return &session.ClientSession{ClientSessionID: "cs-123"}, nil
 }
 func (s *stubSessionSvc) GetSessionByID(_ context.Context, _ string) (*session.SessionRecord, error) {
@@ -443,6 +447,10 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Si
 	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
 	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
 		Return(false, "", "")
+	// replay flow returns COMPLETE → silent code issued.
+	suite.mockFlowExecService.EXPECT().InitiateAndExecute(mock.Anything,
+		mock.AnythingOfType("*flowexec.FlowInitContext")).
+		Return(&flowexec.FlowStep{Status: flowcm.FlowStatusComplete, ExecutionID: "exec-sso"}, nil)
 	suite.mockAuthzCodeStore.EXPECT().InsertAuthorizationCode(mock.Anything, mock.Anything).Return(nil)
 
 	sessionRec := &session.SessionRecord{
@@ -464,7 +472,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Si
 	assert.Contains(suite.T(), result.RedirectURI, "iss=")
 }
 
-func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_PromptLogin_ForcesInteractive() {
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_PromptLogin_Interactive() {
 	app := suite.testApp()
 	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
 	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).

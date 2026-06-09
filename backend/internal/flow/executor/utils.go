@@ -34,6 +34,12 @@ import (
 // getAuthnServiceName returns the authn service name for an executor.
 // Returns empty string if executor doesn't map to an authn service.
 func getAuthnServiceName(executorName string) string {
+	return GetAuthnServiceName(executorName)
+}
+
+// GetAuthnServiceName maps an executor name to its authn service name.
+// Returns empty string if the executor doesn't map to an authn service.
+func GetAuthnServiceName(executorName string) string {
 	executorToAuthnServiceMap := map[string]string{
 		ExecutorNameBasicAuth:  authncm.AuthenticatorCredentials,
 		ExecutorNameSMSAuth:    authncm.AuthenticatorSMSOTP,

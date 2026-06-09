@@ -29,6 +29,7 @@ import (
 	appmodel "github.com/thunder-id/thunderid/internal/application/model"
 	"github.com/thunder-id/thunderid/internal/entityprovider"
 	"github.com/thunder-id/thunderid/internal/flow/common"
+	"github.com/thunder-id/thunderid/internal/flow/executor"
 	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
@@ -175,6 +176,7 @@ func (s *flowExecService) Execute(ctx context.Context,
 				OUID:            engineCtx.Application.OUID,
 				AuthenticatedAt: time.Now().UTC(),
 				AssuranceLevel:  engineCtx.RuntimeData[common.RuntimeKeySelectedAuthClass],
+				AuthFactors:     extractAuthFactors(engineCtx.ExecutionHistory),
 			}
 			sessionRec, sessionErr := s.sessionService.CreateSessionFromFlow(ctx, sessionInput)
 			if sessionErr != nil {
@@ -716,6 +718,13 @@ func (s *flowExecService) InitiateAndExecute(ctx context.Context,
 	}
 
 	engineCtx.RuntimeData = initContext.RuntimeData
+	engineCtx.SatisfiedAuthenticators = initContext.SatisfiedAuthenticators
+	engineCtx.Subject = initContext.Subject
+	if initContext.Subject != nil {
+		engineCtx.AuthenticatedUser.IsAuthenticated = true
+		engineCtx.AuthenticatedUser.UserID = initContext.Subject.UserID
+		engineCtx.AuthenticatedUser.OUID = initContext.Subject.OUID
+	}
 	prepareContext(engineCtx, "", initContext.InitialInputs)
 
 	flowStep, flowErr := s.flowEngine.Execute(engineCtx)
@@ -777,4 +786,29 @@ func isContextEncrypted(context string) bool {
 		Algorithm string `json:"alg"`
 	}
 	return json.Unmarshal([]byte(context), &encCheck) == nil && encCheck.Algorithm != ""
+}
+
+// extractAuthFactors builds the list of authentication factors from the engine's execution history.
+// It maps each completed AUTHENTICATION executor to an AuthFactor, deduplicating by authenticator name.
+func extractAuthFactors(history map[string]*common.NodeExecutionRecord) []session.AuthFactor {
+	seen := make(map[string]bool)
+	factors := make([]session.AuthFactor, 0)
+	for _, record := range history {
+		if record.ExecutorType != common.ExecutorTypeAuthentication {
+			continue
+		}
+		if record.Status != common.FlowStatusComplete {
+			continue
+		}
+		authnName := executor.GetAuthnServiceName(record.ExecutorName)
+		if authnName == "" || seen[authnName] {
+			continue
+		}
+		seen[authnName] = true
+		factors = append(factors, session.AuthFactor{
+			Authenticator: authnName,
+			AuthTime:      record.EndTime,
+		})
+	}
+	return factors
 }

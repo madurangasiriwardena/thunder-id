@@ -64,6 +64,13 @@ type EngineContext struct {
 
 	ChallengeTokenIn   string
 	ChallengeTokenHash string
+
+	// SatisfiedAuthenticators lists factors already satisfied by the current SSO session.
+	// Authentication TASK nodes whose executor maps to a factor here are skipped by the engine.
+	SatisfiedAuthenticators []SatisfiedFactor
+	// Subject is the seeded user identity from a live SSO session. When non-nil the engine
+	// pre-populates AuthenticatedUser before executing the first node.
+	Subject *SeededSubject
 }
 
 // FlowStep represents the outcome of a individual flow step
@@ -114,6 +121,18 @@ type FlowRequest struct {
 	Inputs         map[string]string `json:"inputs"`
 }
 
+// SatisfiedFactor identifies an authenticator already completed by the current session.
+// The engine uses this to skip authentication TASK nodes that don't need re-execution.
+type SatisfiedFactor struct {
+	Authenticator string `json:"authenticator"`
+}
+
+// SeededSubject carries the user identity from a live session for SSO replay flows.
+type SeededSubject struct {
+	UserID string `json:"userId"`
+	OUID   string `json:"ouId,omitempty"`
+}
+
 // FlowInitContext represents the context for initiating a new flow with runtime data
 type FlowInitContext struct {
 	ApplicationID string
@@ -121,6 +140,11 @@ type FlowInitContext struct {
 	RuntimeData   map[string]string
 	InitialInputs map[string]string
 	ExpirySeconds int64
+	// SatisfiedAuthenticators lists factors already completed by the current session.
+	// The engine skips authentication TASK nodes whose executor maps to a factor in this list.
+	SatisfiedAuthenticators []SatisfiedFactor
+	// Subject seeds the AuthenticatedUser from a live session, enabling silent SSO replay.
+	Subject *SeededSubject
 }
 
 // FlowContextDB represents the database row for a flow context.
@@ -152,6 +176,8 @@ type flowContextContent struct {
 	AvailableAttributes *string `json:"availableAttributes,omitempty"`
 	AuthUser            *string `json:"authUser,omitempty"`
 	ChallengeTokenHash  *string `json:"challengeTokenHash,omitempty"`
+	SatisfiedAuthn      *string `json:"satisfiedAuthn,omitempty"`
+	Subject             *string `json:"subject,omitempty"`
 }
 
 // GetGraphID extracts the graph ID from the context JSON.
@@ -276,23 +302,43 @@ func (f *FlowContextDB) ToEngineContext(ctx context.Context, graph core.GraphInt
 		challengeTokenHash = *content.ChallengeTokenHash
 	}
 
+	// Deserialize SatisfiedAuthenticators if present
+	var satisfiedAuthn []SatisfiedFactor
+	if content.SatisfiedAuthn != nil {
+		if err := json.Unmarshal([]byte(*content.SatisfiedAuthn), &satisfiedAuthn); err != nil {
+			return EngineContext{}, err
+		}
+	}
+
+	// Deserialize Subject if present
+	var subject *SeededSubject
+	if content.Subject != nil {
+		var s SeededSubject
+		if err := json.Unmarshal([]byte(*content.Subject), &s); err != nil {
+			return EngineContext{}, err
+		}
+		subject = &s
+	}
+
 	return EngineContext{
-		Context:            ctx,
-		ExecutionID:        f.ExecutionID,
-		TraceID:            "", // TraceID is transient and set from request context
-		FlowType:           graph.GetType(),
-		AppID:              content.AppID,
-		Verbose:            content.Verbose,
-		UserInputs:         userInputs,
-		RuntimeData:        runtimeData,
-		CurrentNode:        currentNode,
-		CurrentAction:      currentAction,
-		CurrentSegmentID:   currentSegmentID,
-		Graph:              graph,
-		AuthenticatedUser:  authenticatedUser,
-		AuthUser:           authUser,
-		ExecutionHistory:   executionHistory,
-		ChallengeTokenHash: challengeTokenHash,
+		Context:                 ctx,
+		ExecutionID:             f.ExecutionID,
+		TraceID:                 "", // TraceID is transient and set from request context
+		FlowType:                graph.GetType(),
+		AppID:                   content.AppID,
+		Verbose:                 content.Verbose,
+		UserInputs:              userInputs,
+		RuntimeData:             runtimeData,
+		CurrentNode:             currentNode,
+		CurrentAction:           currentAction,
+		CurrentSegmentID:        currentSegmentID,
+		Graph:                   graph,
+		AuthenticatedUser:       authenticatedUser,
+		AuthUser:                authUser,
+		ExecutionHistory:        executionHistory,
+		ChallengeTokenHash:      challengeTokenHash,
+		SatisfiedAuthenticators: satisfiedAuthn,
+		Subject:                 subject,
 	}, nil
 }
 
@@ -402,6 +448,28 @@ func FromEngineContext(ctx EngineContext) (*FlowContextDB, error) {
 		challengeTokenHash = &ctx.ChallengeTokenHash
 	}
 
+	// Serialize SatisfiedAuthenticators if present
+	var satisfiedAuthnStr *string
+	if len(ctx.SatisfiedAuthenticators) > 0 {
+		satisfiedAuthnJSON, err := json.Marshal(ctx.SatisfiedAuthenticators)
+		if err != nil {
+			return nil, err
+		}
+		s := string(satisfiedAuthnJSON)
+		satisfiedAuthnStr = &s
+	}
+
+	// Serialize Subject if present
+	var subjectStr *string
+	if ctx.Subject != nil {
+		subjectJSON, err := json.Marshal(ctx.Subject)
+		if err != nil {
+			return nil, err
+		}
+		s := string(subjectJSON)
+		subjectStr = &s
+	}
+
 	content := flowContextContent{
 		AppID:               ctx.AppID,
 		Verbose:             ctx.Verbose,
@@ -421,6 +489,8 @@ func FromEngineContext(ctx EngineContext) (*FlowContextDB, error) {
 		AvailableAttributes: availableAttributes,
 		AuthUser:            authUserStr,
 		ChallengeTokenHash:  challengeTokenHash,
+		SatisfiedAuthn:      satisfiedAuthnStr,
+		Subject:             subjectStr,
 	}
 
 	contextJSON, err := json.Marshal(content)

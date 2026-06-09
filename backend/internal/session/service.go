@@ -52,8 +52,8 @@ type SessionServiceInterface interface {
 
 // CreateSessionInput carries the facts from a completed authentication flow.
 type CreateSessionInput struct {
-	SubjectID       string
-	AppID           string
+	SubjectID string
+	AppID     string
 	// OUID is the OU that owns the app. When non-empty it is used as the session group ID,
 	// enabling OU-scoped SSO across apps in the same OU.
 	OUID            string
@@ -61,6 +61,8 @@ type CreateSessionInput struct {
 	// AssuranceLevel is the ACR value from the completed flow. When empty,
 	// AssuranceLevelPlaceholder is used.
 	AssuranceLevel string
+	// AuthFactors lists the authentication factors completed in this flow.
+	AuthFactors []AuthFactor
 }
 
 // sessionService is the implementation of SessionServiceInterface.
@@ -92,6 +94,21 @@ func (s *sessionService) CreateSessionFromFlow(
 		return nil, fmt.Errorf("failed to look up existing session: %w", err)
 	}
 	if existing != nil {
+		if len(in.AuthFactors) > 0 {
+			merged := mergeAuthFactors(existing.AuthFactors, in.AuthFactors)
+			assuranceLevel := in.AssuranceLevel
+			if assuranceLevel == "" {
+				assuranceLevel = existing.AssuranceLevel
+			}
+			augErr := s.store.UpdateSessionAuth(ctx, existing.SessionID, merged, assuranceLevel, in.AuthenticatedAt)
+			if augErr != nil {
+				logger.ErrorWithContext(ctx, "Failed to augment session auth factors", log.Error(augErr))
+				return nil, fmt.Errorf("failed to augment session: %w", augErr)
+			}
+			existing.AuthFactors = merged
+			existing.AssuranceLevel = assuranceLevel
+			existing.AuthenticatedAt = in.AuthenticatedAt
+		}
 		return existing, nil
 	}
 
@@ -122,6 +139,7 @@ func (s *sessionService) CreateSessionFromFlow(
 		SessionGroupID:    group.ID,
 		AuthenticatedAt:   in.AuthenticatedAt,
 		AssuranceLevel:    assuranceLevel,
+		AuthFactors:       in.AuthFactors,
 		CreatedAt:         now,
 		LastActiveAt:      now,
 		IdleExpiresAt:     idleExpiresAt,
@@ -254,6 +272,26 @@ func (s *sessionService) GetClientSessionByID(ctx context.Context, clientSession
 		return nil, fmt.Errorf("failed to get client session by ID: %w", err)
 	}
 	return cs, nil
+}
+
+// mergeAuthFactors returns the union of existing and new factors, deduplicating by Authenticator name.
+// New factors take precedence (their AuthTime replaces older entries for the same authenticator).
+func mergeAuthFactors(existing, incoming []AuthFactor) []AuthFactor {
+	seen := make(map[string]int, len(existing))
+	result := make([]AuthFactor, 0, len(existing)+len(incoming))
+	for _, f := range existing {
+		seen[f.Authenticator] = len(result)
+		result = append(result, f)
+	}
+	for _, f := range incoming {
+		if idx, ok := seen[f.Authenticator]; ok {
+			result[idx] = f
+		} else {
+			seen[f.Authenticator] = len(result)
+			result = append(result, f)
+		}
+	}
+	return result
 }
 
 // ResolveSessionGroup maps an OU ID to its session group.

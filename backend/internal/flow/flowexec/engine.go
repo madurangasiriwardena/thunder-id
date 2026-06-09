@@ -137,6 +137,17 @@ func (fe *flowEngine) Execute(ctx *EngineContext) (FlowStep, *serviceerror.Servi
 			continue
 		}
 
+		// Skip authentication TASK nodes (and any feeding PROMPT) that are already satisfied
+		// by the current SSO session.
+		if len(ctx.SatisfiedAuthenticators) > 0 {
+			if skipped, nextNode, svcErr := fe.satisfiedAuthnSkip(ctx, currentNode, logger); svcErr != nil {
+				return flowStep, svcErr
+			} else if skipped {
+				currentNode = nextNode
+				continue
+			}
+		}
+
 		svcErr := fe.setNodeExecutor(ctx.Context, currentNode, logger)
 		if svcErr != nil {
 			return flowStep, svcErr
@@ -708,6 +719,111 @@ func (fe *flowEngine) skipToNextNode(ctx *EngineContext, currentNode core.NodeIn
 	}
 	ctx.CurrentNode = nextNode
 	return nextNode, nil
+}
+
+// satisfiedAuthnSkip checks whether currentNode is an authentication TASK (or a PROMPT that
+// feeds one) whose factor is already satisfied by the SSO session.
+// Returns (true, nextNode, nil) when the node is skipped; (false, nil, nil) when it should execute normally.
+func (fe *flowEngine) satisfiedAuthnSkip(
+	ctx *EngineContext, currentNode core.NodeInterface, logger *log.Logger,
+) (bool, core.NodeInterface, *serviceerror.ServiceError) {
+	satisfied := buildSatisfiedSet(ctx.SatisfiedAuthenticators)
+
+	switch currentNode.GetType() {
+	case common.NodeTypeTaskExecution:
+		return fe.skipSatisfiedTask(ctx, currentNode, satisfied, logger)
+
+	case common.NodeTypePrompt:
+		// One-hop lookahead: if every successor TASK node is a satisfied auth task, skip the prompt.
+		for _, nextID := range currentNode.GetNextNodeList() {
+			nextNode, ok := ctx.Graph.GetNode(nextID)
+			if !ok || nextNode == nil {
+				continue
+			}
+			if nextNode.GetType() != common.NodeTypeTaskExecution {
+				continue
+			}
+			skipped, successor, svcErr := fe.skipSatisfiedTask(ctx, nextNode, satisfied, logger)
+			if svcErr != nil {
+				return false, nil, svcErr
+			}
+			if skipped {
+				// Skip the PROMPT — no record written; advance directly to the task's successor.
+				ctx.CurrentNode = successor
+				return true, successor, nil
+			}
+		}
+	}
+
+	return false, nil, nil
+}
+
+// skipSatisfiedTask synthesizes a completed NodeExecutionRecord for a satisfied auth TASK node
+// and returns its OnSuccess successor node.
+func (fe *flowEngine) skipSatisfiedTask(
+	ctx *EngineContext, node core.NodeInterface, satisfied map[string]bool, logger *log.Logger,
+) (bool, core.NodeInterface, *serviceerror.ServiceError) {
+	execNode, ok := node.(core.ExecutorBackedNodeInterface)
+	if !ok {
+		return false, nil, nil
+	}
+	authnName := executor.GetAuthnServiceName(execNode.GetExecutorName())
+	if authnName == "" || !satisfied[authnName] {
+		return false, nil, nil
+	}
+
+	// Synthesize a completed execution record so extractAuthFactors sees this node as done.
+	now := time.Now().UnixMilli()
+	nextStep := len(ctx.ExecutionHistory) + 1
+	record := common.NodeExecutionRecord{
+		NodeID:       node.GetID(),
+		NodeType:     string(node.GetType()),
+		ExecutorName: execNode.GetExecutorName(),
+		ExecutorType: common.ExecutorTypeAuthentication,
+		ExecutorMode: execNode.GetMode(),
+		Step:         nextStep,
+		Status:       common.FlowStatusComplete,
+		StartTime:    now,
+		EndTime:      now,
+		Executions: []common.ExecutionAttempt{{
+			Attempt:   1,
+			Timestamp: now,
+			StartTime: now,
+			EndTime:   now,
+			Status:    common.FlowStatusComplete,
+		}},
+	}
+	ctx.ExecutionHistory[node.GetID()] = &record
+
+	logger.DebugWithContext(ctx.Context, "Skipping satisfied auth task",
+		log.String("nodeID", node.GetID()),
+		log.String("authenticator", authnName))
+
+	onSuccess := execNode.GetOnSuccess()
+	if onSuccess == "" {
+		ctx.CurrentNode = nil
+		return true, nil, nil
+	}
+	nextNode, ok := ctx.Graph.GetNode(onSuccess)
+	if !ok {
+		logger.ErrorWithContext(ctx.Context, "onSuccess node not found for skipped auth task",
+			log.String("nodeID", node.GetID()), log.String("onSuccess", onSuccess))
+		return false, nil, &serviceerror.InternalServerError
+	}
+	ctx.CurrentNode = nextNode
+	return true, nextNode, nil
+}
+
+// buildSatisfiedSet converts the SatisfiedAuthenticators slice into a fast-lookup map.
+func buildSatisfiedSet(factors []SatisfiedFactor) map[string]bool {
+	if len(factors) == 0 {
+		return nil
+	}
+	m := make(map[string]bool, len(factors))
+	for _, f := range factors {
+		m[f.Authenticator] = true
+	}
+	return m
 }
 
 // resolveToNextNode resolves the next node to execute based on nodeResp.NextNodeID.

@@ -330,17 +330,12 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 	ctx context.Context, oauthParams *oauth2model.OAuthParameters, app *inboundmodel.OAuthClient,
 	sessionRec *session.SessionRecord,
 ) (*AuthorizationInitResult, *AuthorizationError) {
-	// Silent SSO: attempt to issue a code directly when a live session is present and the
+	// Silent SSO: replay the flow seeded from a live session when one is present and the
 	// client has not explicitly requested re-authentication.
 	if as.sessionService != nil && sessionRec != nil && oauthParams.Prompt != oauth2const.PromptLogin {
 		group := session.ResolveSessionGroup(app.OUID)
 		if sessionRec.SessionGroupID == group.ID {
-			// Same session group → issue code silently.
-			silentRedirect, authErr := as.createSilentAuthorizationCode(ctx, oauthParams, sessionRec)
-			if authErr != nil {
-				return nil, authErr
-			}
-			return &AuthorizationInitResult{RedirectURI: silentRedirect}, nil
+			return as.replayWithSession(ctx, oauthParams, app, sessionRec)
 		}
 		// Different group: session exists but is not in scope for this app → fall through to login.
 	}
@@ -434,11 +429,122 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 	return &AuthorizationInitResult{QueryParams: queryParams}, nil
 }
 
-// createSilentAuthorizationCode issues an authorization code directly from a live session,
-// without requiring user interaction. Used for silent SSO within the same session group.
-func (as *authorizeService) createSilentAuthorizationCode(
+// replayWithSession replays the authentication flow seeded from a live SSO session.
+// Satisfied factors are skipped by the engine. Branches on the result:
+//   - COMPLETE  → silent authorization code issued, redirect URI returned.
+//   - INCOMPLETE + prompt=none → interaction_required error returned to client.
+//   - INCOMPLETE → step-up: Gate shows only missing factors; returns login-page redirect params.
+func (as *authorizeService) replayWithSession(
+	ctx context.Context, oauthParams *oauth2model.OAuthParameters,
+	app *inboundmodel.OAuthClient, sessionRec *session.SessionRecord,
+) (*AuthorizationInitResult, *AuthorizationError) {
+	satisfiedFactors := make([]flowexec.SatisfiedFactor, 0, len(sessionRec.AuthFactors))
+	for _, f := range sessionRec.AuthFactors {
+		satisfiedFactors = append(satisfiedFactors, flowexec.SatisfiedFactor{Authenticator: f.Authenticator})
+	}
+
+	ouID := sessionRec.SessionGroupID
+	if ouID == session.DefaultSessionGroupID {
+		ouID = ""
+	}
+
+	effectiveAcrValues := requestvalidator.ResolveACRValues(oauthParams.AcrValues, app.AcrValues)
+	essentialAttributes, optionalAttributes := getRequiredAttributes(
+		oauthParams.StandardScopes, oauthParams.ClaimsRequest, oauthParams.ResponseType, app)
+
+	runtimeData := map[string]string{
+		flowcm.RuntimeKeyClientID:                      oauthParams.ClientID,
+		flowcm.RuntimeKeyRequestedPermissions:          utils.StringifyStringArray(oauthParams.PermissionScopes, " "),
+		flowcm.RuntimeKeyRequiredEssentialAttributes:   essentialAttributes,
+		flowcm.RuntimeKeyRequiredOptionalAttributes:    optionalAttributes,
+		flowcm.RuntimeKeyRequiredLocales:               oauthParams.ClaimsLocales,
+		flowcm.RuntimeKeyUserAttributesCacheTTLSeconds: fmt.Sprintf("%d", resolveUserAttributesCacheTTL(app)),
+	}
+	if effectiveAcrValues != "" {
+		runtimeData[flowcm.RuntimeKeyRequestedAuthClasses] = effectiveAcrValues
+	}
+
+	flowInitCtx := &flowexec.FlowInitContext{
+		ApplicationID:           app.ID,
+		FlowType:                string(flowcm.FlowTypeAuthentication),
+		RuntimeData:             runtimeData,
+		SatisfiedAuthenticators: satisfiedFactors,
+		Subject: &flowexec.SeededSubject{
+			UserID: sessionRec.SubjectID,
+			OUID:   ouID,
+		},
+	}
+
+	flowStep, flowErr := as.flowExecService.InitiateAndExecute(ctx, flowInitCtx)
+	if flowErr != nil {
+		as.logger.ErrorWithContext(ctx, "Failed to replay flow for SSO",
+			log.String("error_code", flowErr.Code))
+		return nil, &AuthorizationError{
+			Code:              oauth2const.ErrorServerError,
+			Message:           "Failed to process authorization request",
+			SendErrorToClient: true,
+			ClientRedirectURI: oauthParams.RedirectURI,
+			State:             oauthParams.State,
+		}
+	}
+
+	if flowStep.Status == flowcm.FlowStatusComplete {
+		// All factors satisfied → issue code silently.
+		return as.issueSilentCode(ctx, oauthParams, sessionRec)
+	}
+
+	// Flow is incomplete: step-up authentication needed.
+	if oauthParams.Prompt == oauth2const.PromptNone {
+		return nil, &AuthorizationError{
+			Code:              oauth2const.ErrorInteractionRequired,
+			Message:           "Session exists but step-up authentication is required",
+			SendErrorToClient: true,
+			ClientRedirectURI: oauthParams.RedirectURI,
+			State:             oauthParams.State,
+		}
+	}
+
+	// Redirect to Gate showing only the remaining (unsatisfied) factors.
+	authRequestCtx := authRequestContext{OAuthParameters: *oauthParams}
+	identifier, storeErr := as.authReqStore.AddRequest(ctx, authRequestCtx)
+	if storeErr != nil {
+		as.logger.ErrorWithContext(ctx, "Failed to store authorization request context for step-up",
+			log.Error(storeErr))
+		return nil, &AuthorizationError{
+			Code:              oauth2const.ErrorServerError,
+			Message:           "Failed to process authorization request",
+			SendErrorToClient: true,
+			ClientRedirectURI: oauthParams.RedirectURI,
+			State:             oauthParams.State,
+		}
+	}
+
+	queryParams := map[string]string{
+		oauth2const.AuthID:      identifier,
+		oauth2const.AppID:       app.ID,
+		oauth2const.ExecutionID: flowStep.ExecutionID,
+	}
+	parsedRedirectURI, err := utils.ParseURL(oauthParams.RedirectURI)
+	if err != nil {
+		return nil, &AuthorizationError{
+			Code:              oauth2const.ErrorServerError,
+			Message:           "Failed to process authorization request",
+			SendErrorToClient: true,
+			ClientRedirectURI: oauthParams.RedirectURI,
+			State:             oauthParams.State,
+		}
+	}
+	if parsedRedirectURI.Scheme == "http" {
+		queryParams[oauth2const.ShowInsecureWarning] = "true"
+	}
+
+	return &AuthorizationInitResult{QueryParams: queryParams}, nil
+}
+
+// issueSilentCode builds and persists an authorization code from a live session without user interaction.
+func (as *authorizeService) issueSilentCode(
 	ctx context.Context, oauthParams *oauth2model.OAuthParameters, sessionRec *session.SessionRecord,
-) (string, *AuthorizationError) {
+) (*AuthorizationInitResult, *AuthorizationError) {
 	allScopes := append(append([]string{}, oauthParams.StandardScopes...), oauthParams.PermissionScopes...)
 	oauthConfig := config.GetServerRuntime().Config.OAuth
 	now := time.Now().UTC()
@@ -446,7 +552,7 @@ func (as *authorizeService) createSilentAuthorizationCode(
 
 	codeID, err := utils.GenerateUUIDv7()
 	if err != nil {
-		return "", &AuthorizationError{
+		return nil, &AuthorizationError{
 			Code:              oauth2const.ErrorServerError,
 			Message:           "Failed to process authorization request",
 			SendErrorToClient: true,
@@ -456,7 +562,7 @@ func (as *authorizeService) createSilentAuthorizationCode(
 	}
 	code, err := oauth2utils.GenerateAuthorizationCode()
 	if err != nil {
-		return "", &AuthorizationError{
+		return nil, &AuthorizationError{
 			Code:              oauth2const.ErrorServerError,
 			Message:           "Failed to process authorization request",
 			SendErrorToClient: true,
@@ -486,7 +592,11 @@ func (as *authorizeService) createSilentAuthorizationCode(
 		DPoPJkt:             oauthParams.DPoPJkt,
 	}
 
-	return as.finalizeAuthorizationCode(ctx, authzCode, oauthParams.State, sessionRec)
+	redirectURI, authErr := as.finalizeAuthorizationCode(ctx, authzCode, oauthParams.State, sessionRec)
+	if authErr != nil {
+		return nil, authErr
+	}
+	return &AuthorizationInitResult{RedirectURI: redirectURI}, nil
 }
 
 // finalizeAuthorizationCode links the code to a client session, persists it, and returns the

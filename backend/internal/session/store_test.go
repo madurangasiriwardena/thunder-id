@@ -91,6 +91,7 @@ func (s *SessionStoreTestSuite) TestCreateSession_Success() {
 		mock.MatchedBy(func(t time.Time) bool { return t.Location() == time.UTC }),
 		rec.Binding.Type,
 		string(rec.State),
+		mock.Anything, // AUTH_FACTORS (nil for records with no factors)
 		rec.Version,
 	).Return(int64(1), nil)
 
@@ -113,6 +114,7 @@ func (s *SessionStoreTestSuite) TestCreateSession_ExecuteError() {
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything,
 	).Return(int64(0), errors.New("insert failed"))
 
 	err := s.store.CreateSession(context.Background(), s.buildRecord())
