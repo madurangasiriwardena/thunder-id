@@ -146,6 +146,9 @@ CREATE INDEX idx_session_record_subject ON "SESSION_RECORD" (SUBJECT_ID, DEPLOYM
 -- Index for expiry-based cleanup jobs
 CREATE INDEX idx_session_record_absolute_expiry ON "SESSION_RECORD" (ABSOLUTE_EXPIRES_AT);
 
+-- Index for find-or-create lookup (GetActiveSessionBySubjectAndGroup hot path)
+CREATE INDEX idx_session_record_subject_group ON "SESSION_RECORD" (SUBJECT_ID, SESSION_GROUP_ID, SESSION_STATE, DEPLOYMENT_ID);
+
 CREATE TABLE "CLIENT_SESSION" (
     DEPLOYMENT_ID      VARCHAR(255) NOT NULL,
     CLIENT_SESSION_ID  VARCHAR(36)  NOT NULL,

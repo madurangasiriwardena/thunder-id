@@ -21,11 +21,13 @@ package authz
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
 	flowcm "github.com/thunder-id/thunderid/internal/flow/common"
@@ -33,6 +35,7 @@ import (
 	inboundmodel "github.com/thunder-id/thunderid/internal/inboundclient/model"
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	oauth2model "github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
@@ -153,7 +156,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Mi
 	}
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), result)
 	assert.NotNil(suite.T(), authErr)
@@ -174,7 +177,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_In
 	}
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), result)
 	assert.NotNil(suite.T(), authErr)
@@ -195,7 +198,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_In
 	}
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), result)
 	assert.NotNil(suite.T(), authErr)
@@ -212,7 +215,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Va
 
 	msg := suite.testMsg()
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), result)
 	assert.NotNil(suite.T(), authErr)
@@ -231,7 +234,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Va
 
 	msg := suite.testMsg()
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), result)
 	assert.NotNil(suite.T(), authErr)
@@ -250,7 +253,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Fl
 		Return("", &serviceerror.InternalServerError)
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg())
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), nil)
 
 	assert.Nil(suite.T(), result)
 	assert.NotNil(suite.T(), authErr)
@@ -269,7 +272,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Su
 	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).Return(testAuthID, nil)
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg())
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -298,7 +301,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_In
 	}
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -324,7 +327,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Em
 	}
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -350,7 +353,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Wi
 	}
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -399,11 +402,135 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Se
 	}
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
 	assert.Equal(suite.T(), "test-flow-id", result.QueryParams[oauth2const.ExecutionID])
+}
+
+// --- Phase C: silent SSO tests ---
+
+// newServiceWithSession builds an authorizeService with a sessionService for Phase C tests.
+func (suite *AuthorizeServiceTestSuite) newServiceWithSession(svc session.SessionServiceInterface) *authorizeService {
+	as := suite.newService()
+	as.sessionService = svc
+	return as
+}
+
+// stubSessionSvc is an inline stub that satisfies session.SessionServiceInterface for Phase C tests.
+type stubSessionSvc struct{}
+
+func (s *stubSessionSvc) CreateSessionFromFlow(_ context.Context, _ session.CreateSessionInput) (*session.SessionRecord, error) {
+	return nil, nil
+}
+func (s *stubSessionSvc) ResolveSession(_ context.Context, _ *http.Request) (*session.SessionRecord, error) {
+	return nil, nil
+}
+func (s *stubSessionSvc) EnsureClientSession(_ context.Context, _, _ string, _ []string) (*session.ClientSession, error) {
+	return &session.ClientSession{ClientSessionID: "cs-123"}, nil
+}
+func (s *stubSessionSvc) GetSessionByID(_ context.Context, _ string) (*session.SessionRecord, error) {
+	return nil, nil
+}
+func (s *stubSessionSvc) GetClientSessionByID(_ context.Context, _ string) (*session.ClientSession, error) {
+	return nil, nil
+}
+
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_SameGroup() {
+	app := suite.testApp()
+	// app.OUID is empty → group is DefaultSessionGroupID.
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	suite.mockAuthzCodeStore.EXPECT().InsertAuthorizationCode(mock.Anything, mock.Anything).Return(nil)
+
+	sessionRec := &session.SessionRecord{
+		SessionID:      "sess-abc",
+		SubjectID:      "user-123",
+		SessionGroupID: session.DefaultSessionGroupID,
+		AssuranceLevel: "low",
+		State:          session.SessionStateActive,
+	}
+
+	svc := suite.newServiceWithSession(&stubSessionSvc{})
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), sessionRec)
+
+	assert.Nil(suite.T(), authErr)
+	require.NotNil(suite.T(), result)
+	assert.NotEmpty(suite.T(), result.RedirectURI, "silent SSO must produce a redirect URI")
+	assert.Empty(suite.T(), result.QueryParams, "silent SSO must not produce login-page query params")
+	assert.Contains(suite.T(), result.RedirectURI, "code=")
+	assert.Contains(suite.T(), result.RedirectURI, "iss=")
+}
+
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_PromptLogin_ForcesInteractive() {
+	app := suite.testApp()
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	suite.mockFlowExecService.EXPECT().InitiateFlow(mock.Anything, mock.Anything).Return("flow-id", nil)
+	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).Return(testAuthID, nil)
+
+	sessionRec := &session.SessionRecord{
+		SessionID:      "sess-abc",
+		SubjectID:      "user-123",
+		SessionGroupID: session.DefaultSessionGroupID,
+		State:          session.SessionStateActive,
+	}
+	msg := suite.testMsg()
+	msg.RequestQueryParams[oauth2const.RequestParamPrompt] = oauth2const.PromptLogin
+
+	svc := suite.newServiceWithSession(&stubSessionSvc{})
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, sessionRec)
+
+	assert.Nil(suite.T(), authErr)
+	require.NotNil(suite.T(), result)
+	assert.Empty(suite.T(), result.RedirectURI, "prompt=login must not silent-redirect")
+	assert.NotEmpty(suite.T(), result.QueryParams, "prompt=login must produce login-page query params")
+}
+
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_PromptNone_NoSession_LoginRequired() {
+	app := suite.testApp()
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+
+	msg := suite.testMsg()
+	msg.RequestQueryParams[oauth2const.RequestParamPrompt] = oauth2const.PromptNone
+
+	svc := suite.newService()
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
+
+	assert.Nil(suite.T(), result)
+	require.NotNil(suite.T(), authErr)
+	assert.Equal(suite.T(), oauth2const.ErrorLoginRequired, authErr.Code)
+	assert.True(suite.T(), authErr.SendErrorToClient)
+}
+
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_CrossGroup_FallsThrough() {
+	app := suite.testApp()
+	// app.OUID is empty → DefaultSessionGroupID. Session is from a different group.
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	suite.mockFlowExecService.EXPECT().InitiateFlow(mock.Anything, mock.Anything).Return("flow-id", nil)
+	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).Return(testAuthID, nil)
+
+	sessionRec := &session.SessionRecord{
+		SessionID:      "sess-other",
+		SubjectID:      "user-123",
+		SessionGroupID: "other-group", // different from DefaultSessionGroupID
+		State:          session.SessionStateActive,
+	}
+
+	svc := suite.newServiceWithSession(&stubSessionSvc{})
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), sessionRec)
+
+	assert.Nil(suite.T(), authErr)
+	require.NotNil(suite.T(), result)
+	assert.Empty(suite.T(), result.RedirectURI, "cross-group session must not silent-redirect")
+	assert.NotEmpty(suite.T(), result.QueryParams)
 }
 
 func (suite *AuthorizeServiceTestSuite) TestHandleAuthorizationCallback_InvalidAuthID() {
@@ -1726,7 +1853,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_No
 	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).Return(testAuthID, nil)
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg())
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -1750,7 +1877,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Ac
 		"urn:thunder:acr:password urn:thunder:acr:generated-code"
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -1782,7 +1909,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Ac
 		"urn:thunder:acr:generated-code urn:thunder:acr:password"
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -1812,7 +1939,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Ac
 	msg.RequestQueryParams[oauth2const.RequestParamAcrValues] = "urn:thunder:acr:password urn:thunder:acr:biometrics"
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -1840,7 +1967,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Ac
 		"urn:thunder:acr:biometrics urn:thunder:acr:linked-wallet"
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -1871,7 +1998,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Ac
 		"urn:thunder:acr:password urn:thunder:acr:password urn:thunder:acr:generated-code"
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)
@@ -1898,7 +2025,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Ac
 	msg.RequestQueryParams[oauth2const.RequestParamAcrValues] = "urn:thunder:acr:password"
 
 	svc := suite.newService()
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, nil)
 
 	assert.Nil(suite.T(), authErr)
 	assert.NotNil(suite.T(), result)

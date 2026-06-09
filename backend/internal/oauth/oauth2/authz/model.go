@@ -72,8 +72,11 @@ type AuthZPostResponse struct {
 }
 
 // AuthorizationInitResult holds the result of a successful initial authorization request processing.
+// When RedirectURI is non-empty the authorization was completed silently; the handler must redirect
+// the user agent directly to that URI without showing the login page.
 type AuthorizationInitResult struct {
 	QueryParams map[string]string
+	RedirectURI string
 }
 
 // AuthorizationError holds structured error info for authorization failures.

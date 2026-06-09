@@ -27,6 +27,7 @@ import (
 
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
+	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/utils"
@@ -40,15 +41,20 @@ type AuthorizeHandlerInterface interface {
 
 // authorizeHandler implements the AuthorizeHandlerInterface for handling OAuth2 authorization requests.
 type authorizeHandler struct {
-	authZService AuthorizeServiceInterface
-	logger       *log.Logger
+	authZService   AuthorizeServiceInterface
+	sessionService session.SessionServiceInterface
+	logger         *log.Logger
 }
 
 // newAuthorizeHandler creates a new instance of authorizeHandler with injected dependencies.
-func newAuthorizeHandler(authZService AuthorizeServiceInterface) AuthorizeHandlerInterface {
+func newAuthorizeHandler(
+	authZService AuthorizeServiceInterface,
+	sessionService session.SessionServiceInterface,
+) AuthorizeHandlerInterface {
 	return &authorizeHandler{
-		authZService: authZService,
-		logger:       log.GetLogger().With(log.String(log.LoggerKeyComponentName, "AuthorizeHandler")),
+		authZService:   authZService,
+		sessionService: sessionService,
+		logger:         log.GetLogger().With(log.String(log.LoggerKeyComponentName, "AuthorizeHandler")),
 	}
 }
 
@@ -60,7 +66,18 @@ func (ah *authorizeHandler) HandleAuthorizeGetRequest(w http.ResponseWriter, r *
 		return
 	}
 
-	result, authErr := ah.authZService.HandleInitialAuthorizationRequest(ctx, oAuthMessage)
+	// Resolve the browser session from the incoming cookie. Errors are non-fatal; a nil session
+	// means no existing SSO session and the user will be directed to the login page.
+	var sessionRec *session.SessionRecord
+	if ah.sessionService != nil {
+		var resolveErr error
+		sessionRec, resolveErr = ah.sessionService.ResolveSession(ctx, r)
+		if resolveErr != nil {
+			ah.logger.ErrorWithContext(ctx, "Failed to resolve session", log.Error(resolveErr))
+		}
+	}
+
+	result, authErr := ah.authZService.HandleInitialAuthorizationRequest(ctx, oAuthMessage, sessionRec)
 	if authErr != nil {
 		if authErr.SendErrorToClient {
 			queryParams := map[string]string{
@@ -81,6 +98,12 @@ func (ah *authorizeHandler) HandleAuthorizeGetRequest(w http.ResponseWriter, r *
 			return
 		}
 		ah.redirectToErrorPage(w, r, authErr.Code, authErr.Message)
+		return
+	}
+
+	// Silent SSO: service issued a code directly — redirect to client without a login page.
+	if result.RedirectURI != "" {
+		http.Redirect(w, r, result.RedirectURI, http.StatusFound)
 		return
 	}
 

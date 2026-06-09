@@ -36,6 +36,8 @@ type ClientSessionStoreInterface interface {
 	// GetClientSessionByID retrieves a ClientSession by its PK.
 	// Returns errClientSessionNotFound when no matching row exists.
 	GetClientSessionByID(ctx context.Context, clientSessionID string) (*ClientSession, error)
+	// TouchClientSession updates LAST_USED_AT for a CLIENT_SESSION.
+	TouchClientSession(ctx context.Context, clientSessionID string, lastUsedAt time.Time) error
 }
 
 // clientSessionStore is the runtime-DB-backed implementation.
@@ -112,6 +114,22 @@ func (s *clientSessionStore) GetClientSessionByID(
 		return nil, errClientSessionNotFound
 	}
 	return buildClientSessionFromRow(results[0])
+}
+
+// TouchClientSession updates LAST_USED_AT for the given CLIENT_SESSION.
+func (s *clientSessionStore) TouchClientSession(
+	ctx context.Context, clientSessionID string, lastUsedAt time.Time,
+) error {
+	dbClient, err := s.dbProvider.GetRuntimeDBClient()
+	if err != nil {
+		return fmt.Errorf("failed to get database client: %w", err)
+	}
+	_, err = dbClient.ExecuteContext(ctx, queryTouchClientSession,
+		lastUsedAt.UTC(), clientSessionID, s.deploymentID)
+	if err != nil {
+		return fmt.Errorf("failed to touch client session: %w", err)
+	}
+	return nil
 }
 
 // buildClientSessionFromRow maps a database result row to a ClientSession.

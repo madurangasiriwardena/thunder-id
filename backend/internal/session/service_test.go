@@ -89,6 +89,18 @@ func (s *stubStore) TouchSession(_ context.Context, _ string, _ time.Time, _ int
 	return s.touchReturn, nil
 }
 
+func (s *stubStore) GetActiveSessionBySubjectAndGroup(
+	_ context.Context, subjectID, groupID string,
+) (*SessionRecord, error) {
+	for _, rec := range s.records {
+		if rec.SubjectID == subjectID && rec.SessionGroupID == groupID && rec.State == SessionStateActive {
+			cp := *rec
+			return &cp, nil
+		}
+	}
+	return nil, errSessionNotFound
+}
+
 func TestCreateSessionFromFlow_ManagedGroup(t *testing.T) {
 	initTestConfig(t)
 	store := newStubStore()
@@ -258,4 +270,53 @@ func TestResolveSession_NonActiveState(t *testing.T) {
 	resolved, err := svc.ResolveSession(context.Background(), req)
 	require.NoError(t, err)
 	assert.Nil(t, resolved)
+}
+
+func TestCreateSessionFromFlow_FindOrCreate_ReturnsExisting(t *testing.T) {
+	initTestConfig(t)
+	store := newStubStore()
+	svc := &sessionService{store: store}
+
+	existing := &SessionRecord{
+		SessionID:      "existing-session",
+		HandleID:       "existing-handle",
+		SubjectID:      "user-abc",
+		SessionGroupID: DefaultSessionGroupID,
+		State:          SessionStateActive,
+	}
+	store.records["existing-handle"] = existing
+
+	in := CreateSessionInput{SubjectID: "user-abc", AppID: "app-1"}
+	rec, err := svc.CreateSessionFromFlow(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+
+	assert.Equal(t, "existing-session", rec.SessionID, "must return existing session, not create a new one")
+	assert.Equal(t, 0, store.createCalls, "CreateSession must not be called when session already exists")
+}
+
+func TestCreateSessionFromFlow_FindOrCreate_CreatesWhenNone(t *testing.T) {
+	initTestConfig(t)
+	store := newStubStore()
+	svc := &sessionService{store: store}
+
+	in := CreateSessionInput{SubjectID: "user-new", AppID: "app-1"}
+	rec, err := svc.CreateSessionFromFlow(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+
+	assert.NotEmpty(t, rec.SessionID)
+	assert.Equal(t, 1, store.createCalls)
+}
+
+func TestResolveSessionGroup_WithOUID(t *testing.T) {
+	initTestConfig(t)
+	group := ResolveSessionGroup("ou-123")
+	assert.Equal(t, "ou-123", group.ID, "group ID must equal the OUID")
+}
+
+func TestResolveSessionGroup_EmptyOUID_UsesDefault(t *testing.T) {
+	initTestConfig(t)
+	group := ResolveSessionGroup("")
+	assert.Equal(t, DefaultSessionGroupID, group.ID, "empty OUID must fall back to default group ID")
 }

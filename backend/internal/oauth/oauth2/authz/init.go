@@ -53,7 +53,7 @@ func Initialize(
 		inboundClient, resourceService, jwtService, flowExecService,
 		authzCodeStore, authzReqStore, parService, transactioner, sessionService,
 	)
-	authzHandler := newAuthorizeHandler(authzService)
+	authzHandler := newAuthorizeHandler(authzService, sessionService)
 	registerRoutes(mux, authzHandler)
 	return authzService, nil
 }

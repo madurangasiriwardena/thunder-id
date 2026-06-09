@@ -54,6 +54,9 @@ type SessionServiceInterface interface {
 type CreateSessionInput struct {
 	SubjectID       string
 	AppID           string
+	// OUID is the OU that owns the app. When non-empty it is used as the session group ID,
+	// enabling OU-scoped SSO across apps in the same OU.
+	OUID            string
 	AuthenticatedAt time.Time
 	// AssuranceLevel is the ACR value from the completed flow. When empty,
 	// AssuranceLevelPlaceholder is used.
@@ -70,15 +73,26 @@ func newSessionService(store SessionRecordStoreInterface, csStore ClientSessionS
 	return &sessionService{store: store, csStore: csStore}
 }
 
-// CreateSessionFromFlow creates a durable SessionRecord for a managed session group.
+// CreateSessionFromFlow returns the active SessionRecord for the subject+group, creating one
+// if none exists. Returns (nil, nil) when the resolved session group is sessionless.
 func (s *sessionService) CreateSessionFromFlow(
 	ctx context.Context, in CreateSessionInput,
 ) (*SessionRecord, error) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "SessionService"))
 
-	group := resolveSessionGroup(in.AppID)
+	group := ResolveSessionGroup(in.OUID)
 	if group.Mode != SessionModeManaged {
 		return nil, nil
+	}
+
+	// Find-or-create: reuse an existing ACTIVE session for this (subject, group) pair.
+	existing, err := s.store.GetActiveSessionBySubjectAndGroup(ctx, in.SubjectID, group.ID)
+	if err != nil && !errors.Is(err, errSessionNotFound) {
+		logger.ErrorWithContext(ctx, "Failed to look up existing session", log.Error(err))
+		return nil, fmt.Errorf("failed to look up existing session: %w", err)
+	}
+	if existing != nil {
+		return existing, nil
 	}
 
 	sessionID, err := sysutils.GenerateUUIDv7()
@@ -175,6 +189,11 @@ func (s *sessionService) EnsureClientSession(
 		return nil, fmt.Errorf("failed to look up client session: %w", err)
 	}
 	if existing != nil {
+		now := time.Now().UTC()
+		if touchErr := s.csStore.TouchClientSession(ctx, existing.ClientSessionID, now); touchErr != nil {
+			logger.ErrorWithContext(ctx, "Failed to touch client session", log.Error(touchErr))
+		}
+		existing.LastUsedAt = now
 		return existing, nil
 	}
 
@@ -237,13 +256,19 @@ func (s *sessionService) GetClientSessionByID(ctx context.Context, clientSession
 	return cs, nil
 }
 
-// resolveSessionGroup maps an appID to its session group.
-// TODO Phase B: real per-group config; for now every app maps to the default managed group.
-func resolveSessionGroup(_ string) SessionGroup {
+// ResolveSessionGroup maps an OU ID to its session group.
+// When ouID is non-empty, the OU is the group boundary for SSO.
+// Falls back to DefaultSessionGroupID when ouID is empty.
+// TODO Phase C: replace with real per-group config when SessionGroup entity is introduced.
+func ResolveSessionGroup(ouID string) SessionGroup {
 	cfg := config.GetServerRuntime().Config.Session
 	mode := SessionMode(cfg.DefaultMode)
+	groupID := DefaultSessionGroupID
+	if ouID != "" {
+		groupID = ouID
+	}
 	return SessionGroup{
-		ID:   DefaultSessionGroupID,
+		ID:   groupID,
 		Mode: mode,
 	}
 }

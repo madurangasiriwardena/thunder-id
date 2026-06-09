@@ -189,8 +189,8 @@ func (_c *AuthorizeServiceInterfaceMock_HandleAuthorizationCallback_Call) RunAnd
 }
 
 // HandleInitialAuthorizationRequest provides a mock function for the type AuthorizeServiceInterfaceMock
-func (_mock *AuthorizeServiceInterfaceMock) HandleInitialAuthorizationRequest(ctx context.Context, msg *authz.OAuthMessage) (*authz.AuthorizationInitResult, *authz.AuthorizationError) {
-	ret := _mock.Called(ctx, msg)
+func (_mock *AuthorizeServiceInterfaceMock) HandleInitialAuthorizationRequest(ctx context.Context, msg *authz.OAuthMessage, sessionRec *session.SessionRecord) (*authz.AuthorizationInitResult, *authz.AuthorizationError) {
+	ret := _mock.Called(ctx, msg, sessionRec)
 
 	if len(ret) == 0 {
 		panic("no return value specified for HandleInitialAuthorizationRequest")
@@ -198,18 +198,18 @@ func (_mock *AuthorizeServiceInterfaceMock) HandleInitialAuthorizationRequest(ct
 
 	var r0 *authz.AuthorizationInitResult
 	var r1 *authz.AuthorizationError
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *authz.OAuthMessage) (*authz.AuthorizationInitResult, *authz.AuthorizationError)); ok {
-		return returnFunc(ctx, msg)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *authz.OAuthMessage, *session.SessionRecord) (*authz.AuthorizationInitResult, *authz.AuthorizationError)); ok {
+		return returnFunc(ctx, msg, sessionRec)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *authz.OAuthMessage) *authz.AuthorizationInitResult); ok {
-		r0 = returnFunc(ctx, msg)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *authz.OAuthMessage, *session.SessionRecord) *authz.AuthorizationInitResult); ok {
+		r0 = returnFunc(ctx, msg, sessionRec)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*authz.AuthorizationInitResult)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *authz.OAuthMessage) *authz.AuthorizationError); ok {
-		r1 = returnFunc(ctx, msg)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *authz.OAuthMessage, *session.SessionRecord) *authz.AuthorizationError); ok {
+		r1 = returnFunc(ctx, msg, sessionRec)
 	} else {
 		if ret.Get(1) != nil {
 			r1 = ret.Get(1).(*authz.AuthorizationError)
@@ -226,11 +226,12 @@ type AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call struct
 // HandleInitialAuthorizationRequest is a helper method to define mock.On call
 //   - ctx context.Context
 //   - msg *authz.OAuthMessage
-func (_e *AuthorizeServiceInterfaceMock_Expecter) HandleInitialAuthorizationRequest(ctx interface{}, msg interface{}) *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call {
-	return &AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call{Call: _e.mock.On("HandleInitialAuthorizationRequest", ctx, msg)}
+//   - sessionRec *session.SessionRecord
+func (_e *AuthorizeServiceInterfaceMock_Expecter) HandleInitialAuthorizationRequest(ctx interface{}, msg interface{}, sessionRec interface{}) *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call {
+	return &AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call{Call: _e.mock.On("HandleInitialAuthorizationRequest", ctx, msg, sessionRec)}
 }
 
-func (_c *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call) Run(run func(ctx context.Context, msg *authz.OAuthMessage)) *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call {
+func (_c *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call) Run(run func(ctx context.Context, msg *authz.OAuthMessage, sessionRec *session.SessionRecord)) *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -240,10 +241,11 @@ func (_c *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call) 
 		if args[1] != nil {
 			arg1 = args[1].(*authz.OAuthMessage)
 		}
-		run(
-			arg0,
-			arg1,
-		)
+		var arg2 *session.SessionRecord
+		if args[2] != nil {
+			arg2 = args[2].(*session.SessionRecord)
+		}
+		run(arg0, arg1, arg2)
 	})
 	return _c
 }
@@ -253,7 +255,7 @@ func (_c *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call) 
 	return _c
 }
 
-func (_c *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call) RunAndReturn(run func(ctx context.Context, msg *authz.OAuthMessage) (*authz.AuthorizationInitResult, *authz.AuthorizationError)) *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call {
+func (_c *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call) RunAndReturn(run func(ctx context.Context, msg *authz.OAuthMessage, sessionRec *session.SessionRecord) (*authz.AuthorizationInitResult, *authz.AuthorizationError)) *AuthorizeServiceInterfaceMock_HandleInitialAuthorizationRequest_Call {
 	_c.Call.Return(run)
 	return _c
 }

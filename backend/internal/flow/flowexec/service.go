@@ -172,6 +172,7 @@ func (s *flowExecService) Execute(ctx context.Context,
 			sessionInput := session.CreateSessionInput{
 				SubjectID:       engineCtx.AuthenticatedUser.UserID,
 				AppID:           engineCtx.AppID,
+				OUID:            engineCtx.Application.OUID,
 				AuthenticatedAt: time.Now().UTC(),
 				AssuranceLevel:  engineCtx.RuntimeData[common.RuntimeKeySelectedAuthClass],
 			}
@@ -380,6 +381,10 @@ func (s *flowExecService) buildFlowApplication(
 			LoginConsent:     client.LoginConsent,
 			AllowedUserTypes: client.AllowedUserTypes,
 		},
+	}
+
+	if entity != nil {
+		app.OUID = entity.OUID
 	}
 
 	entityAttrs := readEntitySystemAttributes(entity)

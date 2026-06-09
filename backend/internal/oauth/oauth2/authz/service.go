@@ -51,8 +51,12 @@ import (
 // AuthorizeServiceInterface defines the interface for authorization services.
 type AuthorizeServiceInterface interface {
 	GetAuthorizationCodeDetails(ctx context.Context, clientID string, code string) (*AuthorizationCode, error)
+	// HandleInitialAuthorizationRequest processes an initial authorization request.
+	// sessionRec is the resolved browser session from the incoming cookie (may be nil).
+	// When a silent SSO code is issued, AuthorizationInitResult.RedirectURI is set and the
+	// handler must redirect directly to the client without showing the login page.
 	HandleInitialAuthorizationRequest(
-		ctx context.Context, msg *OAuthMessage,
+		ctx context.Context, msg *OAuthMessage, sessionRec *session.SessionRecord,
 	) (*AuthorizationInitResult, *AuthorizationError)
 	// HandleAuthorizationCallback processes the assertion from the flow engine and issues the
 	// authorization code redirect. sessionRec is the resolved browser session (may be nil for
@@ -139,9 +143,9 @@ func (as *authorizeService) GetAuthorizationCodeDetails(
 }
 
 // HandleInitialAuthorizationRequest processes an initial authorization request from the client.
-// Returns the query params needed to redirect to the login page, or a structured authorization error.
-func (as *authorizeService) HandleInitialAuthorizationRequest(ctx context.Context, msg *OAuthMessage) (
-	*AuthorizationInitResult, *AuthorizationError) {
+func (as *authorizeService) HandleInitialAuthorizationRequest(
+	ctx context.Context, msg *OAuthMessage, sessionRec *session.SessionRecord,
+) (*AuthorizationInitResult, *AuthorizationError) {
 	clientID := msg.RequestQueryParams[oauth2const.RequestParamClientID]
 	requestURI := msg.RequestQueryParams[oauth2const.RequestParamRequestURI]
 
@@ -170,6 +174,7 @@ func (as *authorizeService) HandleInitialAuthorizationRequest(ctx context.Contex
 
 	// If request_uri is present, resolve the pushed authorization request.
 	if requestURI != "" {
+		// TODO Phase C: PAR requests don't carry prompt; sessionRec not threaded here yet.
 		return as.handlePARAuthorizationRequest(ctx, requestURI, clientID, app)
 	}
 
@@ -181,7 +186,7 @@ func (as *authorizeService) HandleInitialAuthorizationRequest(ctx context.Contex
 		}
 	}
 
-	return as.handleStandardAuthorizationRequest(ctx, msg, app)
+	return as.handleStandardAuthorizationRequest(ctx, msg, app, sessionRec)
 }
 
 // handlePARAuthorizationRequest resolves a request_uri from a PAR and continues the authorization flow.
@@ -203,18 +208,21 @@ func (as *authorizeService) handlePARAuthorizationRequest(
 		}
 	}
 
-	return as.initiateFlowAndStoreRequest(ctx, oauthParams, app)
+	// TODO Phase C: pass sessionRec through PAR path once prompt is supported there.
+	return as.initiateFlowAndStoreRequest(ctx, oauthParams, app, nil)
 }
 
 // handleStandardAuthorizationRequest processes a standard authorization request (without PAR).
 func (as *authorizeService) handleStandardAuthorizationRequest(
 	ctx context.Context, msg *OAuthMessage, app *inboundmodel.OAuthClient,
+	sessionRec *session.SessionRecord,
 ) (*AuthorizationInitResult, *AuthorizationError) {
 	// Extract required parameters.
 	redirectURI := msg.RequestQueryParams[oauth2const.RequestParamRedirectURI]
 	scope := msg.RequestQueryParams[oauth2const.RequestParamScope]
 	state := msg.RequestQueryParams[oauth2const.RequestParamState]
 	responseType := msg.RequestQueryParams[oauth2const.RequestParamResponseType]
+	prompt := msg.RequestQueryParams[oauth2const.RequestParamPrompt]
 
 	// Extract PKCE parameters.
 	codeChallenge := msg.RequestQueryParams[oauth2const.RequestParamCodeChallenge]
@@ -295,6 +303,7 @@ func (as *authorizeService) handleStandardAuthorizationRequest(
 		Nonce:               nonce,
 		AcrValues:           acrValues,
 		DPoPJkt:             dpopJkt,
+		Prompt:              prompt,
 	}
 
 	// Set the redirect URI if not provided in the request. Invalid cases are already handled at this point.
@@ -311,14 +320,42 @@ func (as *authorizeService) handleStandardAuthorizationRequest(
 		oauthParams.RedirectURI = app.RedirectURIs[0]
 	}
 
-	return as.initiateFlowAndStoreRequest(ctx, oauthParams, app)
+	return as.initiateFlowAndStoreRequest(ctx, oauthParams, app, sessionRec)
 }
 
 // initiateFlowAndStoreRequest initiates the authentication flow and stores the authorization request context.
 // This is the common path shared by both standard and PAR-based authorization requests.
+// When sessionRec is non-nil and prompt != "login", a silent SSO code may be issued directly.
 func (as *authorizeService) initiateFlowAndStoreRequest(
 	ctx context.Context, oauthParams *oauth2model.OAuthParameters, app *inboundmodel.OAuthClient,
+	sessionRec *session.SessionRecord,
 ) (*AuthorizationInitResult, *AuthorizationError) {
+	// Silent SSO: attempt to issue a code directly when a live session is present and the
+	// client has not explicitly requested re-authentication.
+	if as.sessionService != nil && sessionRec != nil && oauthParams.Prompt != oauth2const.PromptLogin {
+		group := session.ResolveSessionGroup(app.OUID)
+		if sessionRec.SessionGroupID == group.ID {
+			// Same session group → issue code silently.
+			silentRedirect, authErr := as.createSilentAuthorizationCode(ctx, oauthParams, sessionRec)
+			if authErr != nil {
+				return nil, authErr
+			}
+			return &AuthorizationInitResult{RedirectURI: silentRedirect}, nil
+		}
+		// Different group: session exists but is not in scope for this app → fall through to login.
+	}
+
+	// prompt=none with no usable session → return login_required to the client.
+	if oauthParams.Prompt == oauth2const.PromptNone {
+		return nil, &AuthorizationError{
+			Code:              oauth2const.ErrorLoginRequired,
+			Message:           "No active session for this client",
+			SendErrorToClient: true,
+			ClientRedirectURI: oauthParams.RedirectURI,
+			State:             oauthParams.State,
+		}
+	}
+
 	effectiveAcrValues := requestvalidator.ResolveACRValues(oauthParams.AcrValues, app.AcrValues)
 	essentialAttributes, optionalAttributes := getRequiredAttributes(
 		oauthParams.StandardScopes, oauthParams.ClaimsRequest, oauthParams.ResponseType, app)
@@ -395,6 +432,112 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 	}
 
 	return &AuthorizationInitResult{QueryParams: queryParams}, nil
+}
+
+// createSilentAuthorizationCode issues an authorization code directly from a live session,
+// without requiring user interaction. Used for silent SSO within the same session group.
+func (as *authorizeService) createSilentAuthorizationCode(
+	ctx context.Context, oauthParams *oauth2model.OAuthParameters, sessionRec *session.SessionRecord,
+) (string, *AuthorizationError) {
+	allScopes := append(append([]string{}, oauthParams.StandardScopes...), oauthParams.PermissionScopes...)
+	oauthConfig := config.GetServerRuntime().Config.OAuth
+	now := time.Now().UTC()
+	expiryTime := now.Add(time.Duration(oauthConfig.AuthorizationCode.ValidityPeriod) * time.Second)
+
+	codeID, err := utils.GenerateUUIDv7()
+	if err != nil {
+		return "", &AuthorizationError{
+			Code:              oauth2const.ErrorServerError,
+			Message:           "Failed to process authorization request",
+			SendErrorToClient: true,
+			ClientRedirectURI: oauthParams.RedirectURI,
+			State:             oauthParams.State,
+		}
+	}
+	code, err := oauth2utils.GenerateAuthorizationCode()
+	if err != nil {
+		return "", &AuthorizationError{
+			Code:              oauth2const.ErrorServerError,
+			Message:           "Failed to process authorization request",
+			SendErrorToClient: true,
+			ClientRedirectURI: oauthParams.RedirectURI,
+			State:             oauthParams.State,
+		}
+	}
+
+	authzCode := AuthorizationCode{
+		CodeID:              codeID,
+		Code:                code,
+		ClientID:            oauthParams.ClientID,
+		RedirectURI:         oauthParams.RedirectURI,
+		RedirectURIProvided: oauthParams.RedirectURIProvided,
+		AuthorizedUserID:    sessionRec.SubjectID,
+		TimeCreated:         now,
+		ExpiryTime:          expiryTime,
+		Scopes:              utils.StringifyStringArray(allScopes, " "),
+		State:               AuthCodeStateActive,
+		CodeChallenge:       oauthParams.CodeChallenge,
+		CodeChallengeMethod: oauthParams.CodeChallengeMethod,
+		Resources:           oauthParams.Resources,
+		ClaimsRequest:       oauthParams.ClaimsRequest,
+		ClaimsLocales:       oauthParams.ClaimsLocales,
+		Nonce:               oauthParams.Nonce,
+		CompletedACR:        sessionRec.AssuranceLevel,
+		DPoPJkt:             oauthParams.DPoPJkt,
+	}
+
+	return as.finalizeAuthorizationCode(ctx, authzCode, oauthParams.State, sessionRec)
+}
+
+// finalizeAuthorizationCode links the code to a client session, persists it, and returns the
+// redirect URI with the code appended. Used by both the interactive callback and silent SSO paths.
+func (as *authorizeService) finalizeAuthorizationCode(
+	ctx context.Context, authzCode AuthorizationCode, state string, sessionRec *session.SessionRecord,
+) (string, *AuthorizationError) {
+	if sessionRec != nil && as.sessionService != nil {
+		scopes := utils.ParseStringArray(authzCode.Scopes, " ")
+		cs, csErr := as.sessionService.EnsureClientSession(ctx, sessionRec.SessionID, authzCode.ClientID, scopes)
+		if csErr != nil {
+			return "", &AuthorizationError{
+				Code:              oauth2const.ErrorServerError,
+				Message:           "Failed to process authorization request",
+				SendErrorToClient: true,
+				ClientRedirectURI: authzCode.RedirectURI,
+				State:             state,
+			}
+		}
+		authzCode.SessionID = sessionRec.SessionID
+		authzCode.ClientSessionID = cs.ClientSessionID
+	}
+
+	if persistErr := as.authCodeStore.InsertAuthorizationCode(ctx, authzCode); persistErr != nil {
+		return "", &AuthorizationError{
+			Code:              oauth2const.ErrorServerError,
+			Message:           "Failed to process authorization request",
+			SendErrorToClient: true,
+			ClientRedirectURI: authzCode.RedirectURI,
+			State:             state,
+		}
+	}
+
+	queryParams := map[string]string{
+		"code":                      authzCode.Code,
+		oauth2const.RequestParamIss: config.GetServerRuntime().Config.JWT.Issuer,
+	}
+	if state != "" {
+		queryParams[oauth2const.RequestParamState] = state
+	}
+	redirectURI, err := oauth2utils.GetURIWithQueryParams(authzCode.RedirectURI, queryParams)
+	if err != nil {
+		return "", &AuthorizationError{
+			Code:              oauth2const.ErrorServerError,
+			Message:           "Failed to process authorization request",
+			SendErrorToClient: true,
+			ClientRedirectURI: authzCode.RedirectURI,
+			State:             state,
+		}
+	}
+	return redirectURI, nil
 }
 
 // HandleAuthorizationCallback processes the callback assertion from the flow engine.
@@ -514,54 +657,12 @@ func (as *authorizeService) HandleAuthorizationCallback(
 			return err
 		}
 
-		// Link the authorization code to the browser session when one is present.
-		if sessionRec != nil && as.sessionService != nil {
-			scopes := utils.ParseStringArray(authzCode.Scopes, " ")
-			cs, csErr := as.sessionService.EnsureClientSession(ctx, sessionRec.SessionID, authzCode.ClientID, scopes)
-			if csErr != nil {
-				authErr = &AuthorizationError{
-					Code:              oauth2const.ErrorServerError,
-					Message:           "Failed to process authorization request",
-					SendErrorToClient: true,
-					ClientRedirectURI: authRequestCtx.OAuthParameters.RedirectURI,
-					State:             authRequestCtx.OAuthParameters.State,
-				}
-				return csErr
-			}
-			authzCode.SessionID = sessionRec.SessionID
-			authzCode.ClientSessionID = cs.ClientSessionID
-		}
-
-		// Persist the authorization code.
-		if persistErr := as.authCodeStore.InsertAuthorizationCode(ctx, authzCode); persistErr != nil {
-			authErr = &AuthorizationError{
-				Code:              oauth2const.ErrorServerError,
-				Message:           "Failed to process authorization request",
-				SendErrorToClient: true,
-				ClientRedirectURI: authRequestCtx.OAuthParameters.RedirectURI,
-				State:             authRequestCtx.OAuthParameters.State,
-			}
-			return persistErr
-		}
-
-		// Construct the redirect URI with the authorization code.
-		queryParams := map[string]string{
-			"code":                      authzCode.Code,
-			oauth2const.RequestParamIss: config.GetServerRuntime().Config.JWT.Issuer,
-		}
-		if authRequestCtx.OAuthParameters.State != "" {
-			queryParams[oauth2const.RequestParamState] = authRequestCtx.OAuthParameters.State
-		}
-		redirectURI, err = oauth2utils.GetURIWithQueryParams(authzCode.RedirectURI, queryParams)
-		if err != nil {
-			authErr = &AuthorizationError{
-				Code:              oauth2const.ErrorServerError,
-				Message:           "Failed to process authorization request",
-				SendErrorToClient: true,
-				ClientRedirectURI: authRequestCtx.OAuthParameters.RedirectURI,
-				State:             authRequestCtx.OAuthParameters.State,
-			}
-			return err
+		var finalizeErr *AuthorizationError
+		redirectURI, finalizeErr = as.finalizeAuthorizationCode(
+			ctx, authzCode, authRequestCtx.OAuthParameters.State, sessionRec)
+		if finalizeErr != nil {
+			authErr = finalizeErr
+			return errors.New(finalizeErr.Message)
 		}
 
 		return nil

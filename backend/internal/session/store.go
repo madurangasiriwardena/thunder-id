@@ -39,6 +39,9 @@ type SessionRecordStoreInterface interface {
 	// Returns true when the row was updated (VERSION matched), false on a version
 	// mismatch (concurrent update won the race), error on backend failure.
 	TouchSession(ctx context.Context, sessionID string, lastActiveAt time.Time, version int) (bool, error)
+	// GetActiveSessionBySubjectAndGroup retrieves the single ACTIVE SessionRecord for a
+	// (subjectID, groupID) pair. Returns errSessionNotFound when none exists.
+	GetActiveSessionBySubjectAndGroup(ctx context.Context, subjectID, groupID string) (*SessionRecord, error)
 }
 
 // sessionRecordStore is the runtime-DB-backed implementation.
@@ -150,6 +153,28 @@ func (s *sessionRecordStore) TouchSession(
 		return false, fmt.Errorf("failed to touch session: %w", err)
 	}
 	return rowsAffected > 0, nil
+}
+
+// GetActiveSessionBySubjectAndGroup retrieves the ACTIVE SessionRecord for a (subjectID, groupID) pair.
+func (s *sessionRecordStore) GetActiveSessionBySubjectAndGroup(
+	ctx context.Context, subjectID, groupID string,
+) (*SessionRecord, error) {
+	dbClient, err := s.dbProvider.GetRuntimeDBClient()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database client: %w", err)
+	}
+
+	results, err := dbClient.QueryContext(ctx, queryGetActiveSessionBySubjectAndGroup,
+		subjectID, groupID, s.deploymentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query active session by subject and group: %w", err)
+	}
+
+	if len(results) == 0 {
+		return nil, errSessionNotFound
+	}
+
+	return s.buildFromRow(results[0])
 }
 
 // buildFromRow maps a database result row to a SessionRecord.

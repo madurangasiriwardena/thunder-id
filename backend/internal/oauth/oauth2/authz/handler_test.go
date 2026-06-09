@@ -85,7 +85,7 @@ func (suite *AuthorizeHandlerTestSuite) BeforeTest(suiteName, testName string) {
 
 func (suite *AuthorizeHandlerTestSuite) SetupTest() {
 	suite.mockAuthzService = NewAuthorizeServiceInterfaceMock(suite.T())
-	suite.handler = newAuthorizeHandler(suite.mockAuthzService).(*authorizeHandler)
+	suite.handler = newAuthorizeHandler(suite.mockAuthzService, nil).(*authorizeHandler)
 }
 
 func (suite *AuthorizeHandlerTestSuite) TearDownTest() {
@@ -94,7 +94,7 @@ func (suite *AuthorizeHandlerTestSuite) TearDownTest() {
 
 func (suite *AuthorizeHandlerTestSuite) TestnewAuthorizeHandler() {
 	mockSvc := NewAuthorizeServiceInterfaceMock(suite.T())
-	handler := newAuthorizeHandler(mockSvc)
+	handler := newAuthorizeHandler(mockSvc, nil)
 	assert.NotNil(suite.T(), handler)
 	assert.Implements(suite.T(), (*AuthorizeHandlerInterface)(nil), handler)
 }
@@ -260,7 +260,7 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_Success() 
 			oauth2const.ExecutionID: "test-flow-id",
 		},
 	}
-	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything).Return(result, nil)
+	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything, mock.Anything).Return(result, nil)
 
 	req := httptest.NewRequest("GET",
 		"/oauth2/authorize?client_id=test-client&redirect_uri=https://example.com/callback&response_type=code", nil)
@@ -279,7 +279,7 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_ServiceErr
 		Message:           "Missing client_id parameter",
 		SendErrorToClient: false,
 	}
-	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything).Return(nil, authErr)
+	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything, mock.Anything).Return(nil, authErr)
 
 	req := httptest.NewRequest("GET", "/oauth2/authorize?client_id=&redirect_uri=", nil)
 	rr := httptest.NewRecorder()
@@ -299,7 +299,7 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_ServiceErr
 		ClientRedirectURI: "https://client.example.com/callback",
 		State:             "test-state",
 	}
-	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything).Return(nil, authErr)
+	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything, mock.Anything).Return(nil, authErr)
 
 	reqURL := "/oauth2/authorize?client_id=test-client" +
 		"&redirect_uri=https://client.example.com/callback&response_type=invalid"
@@ -323,7 +323,7 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_IssAlwaysP
 		SendErrorToClient: true,
 		ClientRedirectURI: "https://client.example.com/callback",
 	}
-	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything).Return(nil, authErr)
+	suite.mockAuthzService.EXPECT().HandleInitialAuthorizationRequest(mock.Anything, mock.Anything, mock.Anything).Return(nil, authErr)
 
 	reqURL := "/oauth2/authorize?client_id=test-client" +
 		"&redirect_uri=https://client.example.com/callback&response_type=invalid"
@@ -345,6 +345,52 @@ func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_GetOAuthMe
 	suite.handler.HandleAuthorizeGetRequest(rr, req)
 
 	assert.Equal(suite.T(), http.StatusBadRequest, rr.Code)
+}
+
+func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_SilentSSO_DirectsToClient() {
+	// When the service returns a non-empty RedirectURI the handler must redirect directly.
+	silentRedirectURI := "https://client.example.com/callback?code=silent-code&iss=https%3A%2F%2Flocalhost%3A8090"
+	result := &AuthorizationInitResult{RedirectURI: silentRedirectURI}
+	suite.mockAuthzService.EXPECT().
+		HandleInitialAuthorizationRequest(mock.Anything, mock.Anything, mock.Anything).
+		Return(result, nil)
+
+	req := httptest.NewRequest("GET",
+		"/oauth2/authorize?client_id=test-client&redirect_uri=https://client.example.com/callback&response_type=code",
+		nil)
+	rr := httptest.NewRecorder()
+
+	suite.handler.HandleAuthorizeGetRequest(rr, req)
+
+	assert.Equal(suite.T(), http.StatusFound, rr.Code)
+	location := rr.Header().Get("Location")
+	assert.Equal(suite.T(), silentRedirectURI, location, "silent SSO must redirect directly to the client URI")
+	assert.NotContains(suite.T(), location, "/login", "silent SSO must not go through the login page")
+}
+
+func (suite *AuthorizeHandlerTestSuite) TestHandleAuthorizeGetRequest_PromptNone_LoginRequired_RedirectsToClient() {
+	authErr := &AuthorizationError{
+		Code:              oauth2const.ErrorLoginRequired,
+		Message:           "No active session for this client",
+		SendErrorToClient: true,
+		ClientRedirectURI: "https://client.example.com/callback",
+		State:             "test-state",
+	}
+	suite.mockAuthzService.EXPECT().
+		HandleInitialAuthorizationRequest(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil, authErr)
+
+	req := httptest.NewRequest("GET",
+		"/oauth2/authorize?client_id=test-client&redirect_uri=https://client.example.com/callback&prompt=none",
+		nil)
+	rr := httptest.NewRecorder()
+
+	suite.handler.HandleAuthorizeGetRequest(rr, req)
+
+	assert.Equal(suite.T(), http.StatusFound, rr.Code)
+	location := rr.Header().Get("Location")
+	assert.Contains(suite.T(), location, "error=login_required")
+	assert.Contains(suite.T(), location, "state=test-state")
 }
 
 func (suite *AuthorizeHandlerTestSuite) TestHandleAuthCallbackPostRequest_Success() {
