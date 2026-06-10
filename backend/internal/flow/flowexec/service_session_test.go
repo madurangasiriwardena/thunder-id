@@ -203,3 +203,53 @@ func TestFlowStep_SessionCreationFailure(t *testing.T) {
 	require.NotNil(t, svcErr, "session creation failure must produce InternalServerError")
 	assert.Equal(t, serviceerror.InternalServerError.Code, svcErr.Code)
 }
+
+// TestExtractAuthFactors_ModeFilter verifies that only default ("") and "verify" executor modes
+// are recorded as auth factors. Preparation modes (challenge, identify, resolve, generate, send,
+// register_start, register_finish) complete as AUTHENTICATION type but must not be recorded.
+// Regression for Fix 3: factor over-recording when passkey challenge step completes.
+func TestExtractAuthFactors_ModeFilter(t *testing.T) {
+	endTime := time.Now().UTC().UnixMilli()
+
+	makeRecord := func(name, mode string) *common.NodeExecutionRecord {
+		return &common.NodeExecutionRecord{
+			ExecutorName: name,
+			ExecutorType: common.ExecutorTypeAuthentication,
+			ExecutorMode: mode,
+			Status:       common.FlowStatusComplete,
+			EndTime:      endTime,
+		}
+	}
+
+	history := map[string]*common.NodeExecutionRecord{
+		"passkey-verify":          makeRecord("PasskeyAuthExecutor", "verify"),
+		"passkey-challenge":       makeRecord("PasskeyAuthExecutor", "challenge"),
+		"passkey-register-start":  makeRecord("PasskeyAuthExecutor", "register_start"),
+		"passkey-register-finish": makeRecord("PasskeyAuthExecutor", "register_finish"),
+		"basic-default":           makeRecord("BasicAuthExecutor", ""),
+		"sms-send":                makeRecord("SMSOTPAuthExecutor", "send"),
+		"sms-generate":            makeRecord("SMSOTPAuthExecutor", "generate"),
+		"sms-identify":            makeRecord("BasicAuthExecutor", "identify"),
+		"sms-resolve":             makeRecord("BasicAuthExecutor", "resolve"),
+	}
+
+	factors := extractAuthFactors(history)
+	names := make(map[string]bool, len(factors))
+	for _, f := range factors {
+		names[f.Authenticator] = true
+	}
+
+	assert.True(t, names[authncm.AuthenticatorPasskey],
+		"passkey 'verify' mode must be recorded")
+	assert.True(t, names[authncm.AuthenticatorCredentials],
+		"basic-auth default ('') mode must be recorded")
+
+	for _, f := range factors {
+		if f.Authenticator == authncm.AuthenticatorSMSOTP {
+			t.Errorf("SMS OTP must not be recorded: send/generate modes are not verification")
+		}
+	}
+	assert.Equal(t, 2, len(factors),
+		"only passkey(verify) and basic-auth(default) must be recorded; "+
+			"challenge, register_start, register_finish, send, generate, identify, resolve must be filtered")
+}

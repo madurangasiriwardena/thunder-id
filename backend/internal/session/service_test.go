@@ -286,27 +286,34 @@ func TestResolveSession_NonActiveState(t *testing.T) {
 	assert.Nil(t, resolved)
 }
 
-func TestCreateSessionFromFlow_FindOrCreate_ReturnsExisting(t *testing.T) {
+func TestCreateSessionFromFlow_FindOrCreate_ReturnsExistingByHandle(t *testing.T) {
 	initTestConfig(t)
 	store := newStubStore()
 	svc := &sessionService{store: store}
 
+	now := time.Now().UTC()
 	existing := &SessionRecord{
-		SessionID:      "existing-session",
-		HandleID:       "existing-handle",
-		SubjectID:      "user-abc",
-		SessionGroupID: DefaultSessionGroupID,
-		State:          SessionStateActive,
+		SessionID:         "existing-session",
+		HandleID:          "existing-handle",
+		SubjectID:         "user-abc",
+		SessionGroupID:    DefaultSessionGroupID,
+		State:             SessionStateActive,
+		IdleExpiresAt:     now.Add(30 * time.Minute),
+		AbsoluteExpiresAt: now.Add(12 * time.Hour),
 	}
 	store.records["existing-handle"] = existing
 
-	in := CreateSessionInput{SubjectID: "user-abc", AppID: "app-1"}
+	in := CreateSessionInput{
+		SubjectID:      "user-abc",
+		AppID:          "app-1",
+		IncomingHandle: "existing-handle",
+	}
 	rec, err := svc.CreateSessionFromFlow(context.Background(), in)
 	require.NoError(t, err)
 	require.NotNil(t, rec)
 
-	assert.Equal(t, "existing-session", rec.SessionID, "must return existing session, not create a new one")
-	assert.Equal(t, 0, store.createCalls, "CreateSession must not be called when session already exists")
+	assert.Equal(t, "existing-session", rec.SessionID, "must reuse the session bound to the incoming handle")
+	assert.Equal(t, 0, store.createCalls, "CreateSession must not be called when handle matches an active session")
 }
 
 func TestCreateSessionFromFlow_FindOrCreate_CreatesWhenNone(t *testing.T) {
@@ -320,6 +327,71 @@ func TestCreateSessionFromFlow_FindOrCreate_CreatesWhenNone(t *testing.T) {
 	require.NotNil(t, rec)
 
 	assert.NotEmpty(t, rec.SessionID)
+	assert.Equal(t, 1, store.createCalls)
+}
+
+// TestCreateSessionFromFlow_PerBrowser_NoHandleAlwaysCreates verifies that when no
+// IncomingHandle is present a new session is always created, even if a session for the
+// same (subject, group) exists — the (subject, group) index is no longer the reuse key.
+func TestCreateSessionFromFlow_PerBrowser_NoHandleAlwaysCreates(t *testing.T) {
+	initTestConfig(t)
+	store := newStubStore()
+	svc := &sessionService{store: store}
+
+	now := time.Now().UTC()
+	existing := &SessionRecord{
+		SessionID:         "old-session",
+		HandleID:          "old-handle",
+		SubjectID:         "user-abc",
+		SessionGroupID:    DefaultSessionGroupID,
+		State:             SessionStateActive,
+		IdleExpiresAt:     now.Add(30 * time.Minute),
+		AbsoluteExpiresAt: now.Add(12 * time.Hour),
+	}
+	store.records["old-handle"] = existing
+
+	in := CreateSessionInput{
+		SubjectID: "user-abc",
+		AppID:     "app-1",
+		// No IncomingHandle — simulates a second browser window (no cookie yet).
+	}
+	rec, err := svc.CreateSessionFromFlow(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+
+	assert.NotEqual(t, "old-session", rec.SessionID, "second browser must get its own session record")
+	assert.Equal(t, 1, store.createCalls)
+}
+
+// TestCreateSessionFromFlow_PerBrowser_WrongSubjectCreatesNew verifies that a stale
+// cookie from a different user (handle found but SubjectID mismatch) does not reuse that session.
+func TestCreateSessionFromFlow_PerBrowser_WrongSubjectCreatesNew(t *testing.T) {
+	initTestConfig(t)
+	store := newStubStore()
+	svc := &sessionService{store: store}
+
+	now := time.Now().UTC()
+	otherUser := &SessionRecord{
+		SessionID:         "other-session",
+		HandleID:          "stolen-handle",
+		SubjectID:         "other-user",
+		SessionGroupID:    DefaultSessionGroupID,
+		State:             SessionStateActive,
+		IdleExpiresAt:     now.Add(30 * time.Minute),
+		AbsoluteExpiresAt: now.Add(12 * time.Hour),
+	}
+	store.records["stolen-handle"] = otherUser
+
+	in := CreateSessionInput{
+		SubjectID:      "user-abc",
+		AppID:          "app-1",
+		IncomingHandle: "stolen-handle",
+	}
+	rec, err := svc.CreateSessionFromFlow(context.Background(), in)
+	require.NoError(t, err)
+	require.NotNil(t, rec)
+
+	assert.NotEqual(t, "other-session", rec.SessionID, "must not reuse a session belonging to a different user")
 	assert.Equal(t, 1, store.createCalls)
 }
 

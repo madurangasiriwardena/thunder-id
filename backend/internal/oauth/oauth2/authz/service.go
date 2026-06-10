@@ -433,7 +433,9 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 // Satisfied factors are skipped by the engine. Branches on the result:
 //   - COMPLETE  → silent authorization code issued, redirect URI returned.
 //   - INCOMPLETE + prompt=none → interaction_required error returned to client.
-//   - INCOMPLETE → step-up: Gate shows only missing factors; returns login-page redirect params.
+//   - INCOMPLETE → step-up: a fresh seeded flow (store-at-start) is initialized via
+//     InitiateFlow and its executionId is handed to the Gate. InitiateAndExecute acts
+//     only as the DECIDE step and its pre-executed context is discarded.
 func (as *authorizeService) replayWithSession(
 	ctx context.Context, oauthParams *oauth2model.OAuthParameters,
 	app *inboundmodel.OAuthClient, sessionRec *session.SessionRecord,
@@ -505,6 +507,22 @@ func (as *authorizeService) replayWithSession(
 	}
 
 	// Redirect to Gate showing only the remaining (unsatisfied) factors.
+	// Use InitiateFlow (store-at-start) so the Gate drives from a clean start point.
+	// The engine skips the satisfied factors on each /flow/execute call, preventing
+	// the passkey challenge from being consumed server-side before the browser sees it.
+	freshExecID, flowErr := as.flowExecService.InitiateFlow(ctx, flowInitCtx)
+	if flowErr != nil {
+		as.logger.ErrorWithContext(ctx, "Failed to initialize step-up flow",
+			log.String("error_code", flowErr.Code))
+		return nil, &AuthorizationError{
+			Code:              oauth2const.ErrorServerError,
+			Message:           "Failed to process authorization request",
+			SendErrorToClient: true,
+			ClientRedirectURI: oauthParams.RedirectURI,
+			State:             oauthParams.State,
+		}
+	}
+
 	authRequestCtx := authRequestContext{OAuthParameters: *oauthParams}
 	identifier, storeErr := as.authReqStore.AddRequest(ctx, authRequestCtx)
 	if storeErr != nil {
@@ -522,7 +540,7 @@ func (as *authorizeService) replayWithSession(
 	queryParams := map[string]string{
 		oauth2const.AuthID:      identifier,
 		oauth2const.AppID:       app.ID,
-		oauth2const.ExecutionID: flowStep.ExecutionID,
+		oauth2const.ExecutionID: freshExecID,
 	}
 	parsedRedirectURI, err := utils.ParseURL(oauthParams.RedirectURI)
 	if err != nil {

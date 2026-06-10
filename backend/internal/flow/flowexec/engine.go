@@ -772,6 +772,12 @@ func (fe *flowEngine) skipSatisfiedTask(
 		return false, nil, nil
 	}
 
+	// Mark the user as authenticated only when a factor is actually skipped.
+	// The subject was pre-seeded with UserID/OUID but IsAuthenticated is deferred to
+	// here so that executors for unsatisfied factors (e.g. basic_auth) cannot short-
+	// circuit credential validation by seeing IsAuthenticated=true on the context.
+	ctx.AuthenticatedUser.IsAuthenticated = true
+
 	// Synthesize a completed execution record so extractAuthFactors sees this node as done.
 	now := time.Now().UnixMilli()
 	nextStep := len(ctx.ExecutionHistory) + 1

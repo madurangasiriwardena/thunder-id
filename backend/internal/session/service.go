@@ -63,6 +63,10 @@ type CreateSessionInput struct {
 	AssuranceLevel string
 	// AuthFactors lists the authentication factors completed in this flow.
 	AuthFactors []AuthFactor
+	// IncomingHandle is the session cookie handle sent by the browser. When present,
+	// CreateSessionFromFlow resolves the session by handle (per-browser identity) so
+	// that two browsers belonging to the same user do not share a single session record.
+	IncomingHandle string
 }
 
 // sessionService is the implementation of SessionServiceInterface.
@@ -87,11 +91,21 @@ func (s *sessionService) CreateSessionFromFlow(
 		return nil, nil
 	}
 
-	// Find-or-create: reuse an existing ACTIVE session for this (subject, group) pair.
-	existing, err := s.store.GetActiveSessionBySubjectAndGroup(ctx, in.SubjectID, group.ID)
-	if err != nil && !errors.Is(err, errSessionNotFound) {
-		logger.ErrorWithContext(ctx, "Failed to look up existing session", log.Error(err))
-		return nil, fmt.Errorf("failed to look up existing session: %w", err)
+	// Find-or-create: reuse the session bound to the browser's incoming cookie handle.
+	// Handle-based reuse ensures that two browser windows for the same user each get
+	// their own session record (per-browser identity). When no handle is present (e.g.
+	// server-to-server or first-ever login), a new session is always created.
+	var existing *SessionRecord
+	if in.IncomingHandle != "" {
+		byHandle, handleErr := s.store.GetSessionByHandle(ctx, in.IncomingHandle)
+		if handleErr != nil && !errors.Is(handleErr, errSessionNotFound) {
+			logger.ErrorWithContext(ctx, "Failed to look up session by handle", log.Error(handleErr))
+			return nil, fmt.Errorf("failed to look up session by handle: %w", handleErr)
+		}
+		if byHandle != nil && byHandle.IsLive(time.Now().UTC()) &&
+			byHandle.SubjectID == in.SubjectID && byHandle.SessionGroupID == group.ID {
+			existing = byHandle
+		}
 	}
 	if existing != nil {
 		if len(in.AuthFactors) > 0 {

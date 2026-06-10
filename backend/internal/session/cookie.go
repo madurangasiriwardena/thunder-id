@@ -19,11 +19,29 @@
 package session
 
 import (
+	"context"
 	"net/http"
 	"time"
 
 	"github.com/thunder-id/thunderid/internal/system/config"
 )
+
+type sessionHandleKey struct{}
+
+// WithSessionHandle stores an incoming session handle in the context so downstream
+// service code can reuse the caller's browser session.
+func WithSessionHandle(ctx context.Context, handle string) context.Context {
+	return context.WithValue(ctx, sessionHandleKey{}, handle)
+}
+
+// GetSessionHandleFromContext retrieves the session handle threaded through the context,
+// returning an empty string when none is present.
+func GetSessionHandleFromContext(ctx context.Context) string {
+	if h, ok := ctx.Value(sessionHandleKey{}).(string); ok {
+		return h
+	}
+	return ""
+}
 
 // SessionCookieName is the __Host- prefixed cookie that carries the session handle.
 // The __Host- prefix enforces Secure, Path=/, and no Domain — providing strict

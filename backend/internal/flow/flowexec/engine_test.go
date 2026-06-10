@@ -29,6 +29,7 @@ import (
 
 	"github.com/thunder-id/thunderid/internal/flow/common"
 	"github.com/thunder-id/thunderid/internal/flow/core"
+	"github.com/thunder-id/thunderid/internal/flow/executor"
 	"github.com/thunder-id/thunderid/internal/system/cryptolib"
 	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 	i18ncore "github.com/thunder-id/thunderid/internal/system/i18n/core"
@@ -2270,4 +2271,57 @@ func (s *EngineTestSuite) TestProcessServiceErrorForEventPublish_ReturnsErrorDet
 func (s *EngineTestSuite) TestProcessServiceErrorForEventPublish_NilError() {
 	result := processServiceErrorForEventPublish(nil)
 	s.Nil(result)
+}
+
+// --- skipSatisfiedTask: IsAuthenticated behavior (Fix 1a regression) ---
+
+func (s *EngineTestSuite) TestSkipSatisfiedTask_SetsIsAuthenticated() {
+	t := s.T()
+	mockObservability := observabilitymock.NewObservabilityServiceInterfaceMock(t)
+	mockObservability.On("IsEnabled").Return(false).Maybe()
+
+	mockNode := coremock.NewExecutorBackedNodeInterfaceMock(t)
+	mockNode.On("GetExecutorName").Return(executor.ExecutorNameBasicAuth)
+	mockNode.On("GetID").Return("node-basic-auth")
+	mockNode.On("GetType").Return(common.NodeTypeTaskExecution)
+	mockNode.On("GetMode").Return("")
+	mockNode.On("GetOnSuccess").Return("")
+
+	fe := &flowEngine{observabilitySvc: mockObservability}
+
+	satisfied := map[string]bool{authncm.AuthenticatorCredentials: true}
+	ctx := &EngineContext{
+		ExecutionHistory:  make(map[string]*common.NodeExecutionRecord),
+		AuthenticatedUser: authncm.AuthenticatedUser{UserID: "user-123"},
+	}
+
+	skipped, nextNode, svcErr := fe.skipSatisfiedTask(ctx, mockNode, satisfied, log.GetLogger())
+
+	s.True(skipped, "factor is satisfied — node must be skipped")
+	s.Nil(nextNode)
+	s.Nil(svcErr)
+	s.True(ctx.AuthenticatedUser.IsAuthenticated,
+		"IsAuthenticated must be set on the context when a factor is skipped")
+}
+
+func (s *EngineTestSuite) TestSkipSatisfiedTask_UnsatisfiedLeavesIsAuthenticatedFalse() {
+	t := s.T()
+	mockNode := coremock.NewExecutorBackedNodeInterfaceMock(t)
+	mockNode.On("GetExecutorName").Return(executor.ExecutorNameBasicAuth)
+
+	fe := &flowEngine{}
+
+	// Only passkey is satisfied; basic_auth is not → node must not be skipped.
+	satisfied := map[string]bool{authncm.AuthenticatorPasskey: true}
+	ctx := &EngineContext{
+		ExecutionHistory:  make(map[string]*common.NodeExecutionRecord),
+		AuthenticatedUser: authncm.AuthenticatedUser{UserID: "user-123"},
+	}
+
+	skipped, _, svcErr := fe.skipSatisfiedTask(ctx, mockNode, satisfied, log.GetLogger())
+
+	s.False(skipped, "factor is not satisfied — node must not be skipped")
+	s.Nil(svcErr)
+	s.False(ctx.AuthenticatedUser.IsAuthenticated,
+		"IsAuthenticated must remain false when the factor is not in the satisfied set")
 }

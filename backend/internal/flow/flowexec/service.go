@@ -177,6 +177,7 @@ func (s *flowExecService) Execute(ctx context.Context,
 				AuthenticatedAt: time.Now().UTC(),
 				AssuranceLevel:  engineCtx.RuntimeData[common.RuntimeKeySelectedAuthClass],
 				AuthFactors:     extractAuthFactors(engineCtx.ExecutionHistory),
+				IncomingHandle:  session.GetSessionHandleFromContext(ctx),
 			}
 			sessionRec, sessionErr := s.sessionService.CreateSessionFromFlow(ctx, sessionInput)
 			if sessionErr != nil {
@@ -668,8 +669,13 @@ func (s *flowExecService) InitiateFlow(ctx context.Context,
 		return "", err
 	}
 
-	// Replace the RuntimeData with initContext RuntimeData
 	engineCtx.RuntimeData = initContext.RuntimeData
+	engineCtx.SatisfiedAuthenticators = initContext.SatisfiedAuthenticators
+	engineCtx.Subject = initContext.Subject
+	if initContext.Subject != nil {
+		engineCtx.AuthenticatedUser.UserID = initContext.Subject.UserID
+		engineCtx.AuthenticatedUser.OUID = initContext.Subject.OUID
+	}
 
 	// Store the context without executing the flow
 	if storeErr := s.storeContext(ctx, engineCtx, 0, logger); storeErr != nil {
@@ -721,7 +727,6 @@ func (s *flowExecService) InitiateAndExecute(ctx context.Context,
 	engineCtx.SatisfiedAuthenticators = initContext.SatisfiedAuthenticators
 	engineCtx.Subject = initContext.Subject
 	if initContext.Subject != nil {
-		engineCtx.AuthenticatedUser.IsAuthenticated = true
 		engineCtx.AuthenticatedUser.UserID = initContext.Subject.UserID
 		engineCtx.AuthenticatedUser.OUID = initContext.Subject.OUID
 	}
@@ -790,6 +795,9 @@ func isContextEncrypted(context string) bool {
 
 // extractAuthFactors builds the list of authentication factors from the engine's execution history.
 // It maps each completed AUTHENTICATION executor to an AuthFactor, deduplicating by authenticator name.
+// Only executor modes that represent genuine credential verification are recorded:
+// empty (default) and "verify". Preparation modes (identify, resolve, challenge, generate, send,
+// register_start, register_finish) complete as AUTHENTICATION type but don't verify a credential.
 func extractAuthFactors(history map[string]*common.NodeExecutionRecord) []session.AuthFactor {
 	seen := make(map[string]bool)
 	factors := make([]session.AuthFactor, 0)
@@ -798,6 +806,9 @@ func extractAuthFactors(history map[string]*common.NodeExecutionRecord) []sessio
 			continue
 		}
 		if record.Status != common.FlowStatusComplete {
+			continue
+		}
+		if record.ExecutorMode != "" && record.ExecutorMode != executor.ExecutorModeVerify {
 			continue
 		}
 		authnName := executor.GetAuthnServiceName(record.ExecutorName)

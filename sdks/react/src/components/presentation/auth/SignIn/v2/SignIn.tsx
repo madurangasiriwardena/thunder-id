@@ -423,6 +423,53 @@ const SignIn: FC<SignInProps> = ({
    * Initialize the authentication flow.
    * Priority: executionId > applicationId (from context) > applicationId (from URL)
    */
+  /**
+   * If the flow response carries a passkey authentication challenge or registration creation
+   * options, launch the WebAuthn ceremony. Shared by the initial flow load (`initializeFlow`) and
+   * the submit handler so passkey works whether it is the first step (e.g. SSO step-up) or a later
+   * one. Returns true when a passkey ceremony was triggered.
+   */
+  const triggerPasskeyChallenge = async (
+    response: EmbeddedSignInFlowResponseV2,
+    fallbackExecutionId?: string,
+  ): Promise<boolean> => {
+    if (
+      !response.data?.additionalData?.['passkeyChallenge'] &&
+      !response.data?.additionalData?.['passkeyCreationOptions']
+    ) {
+      return false;
+    }
+
+    const {passkeyChallenge, passkeyCreationOptions}: any = response.data.additionalData;
+    const passkeyExecutionId: string | null = response.executionId || fallbackExecutionId || null;
+
+    // Reset passkey processed ref to allow processing
+    passkeyProcessedRef.current = false;
+
+    await setChallengeToken(response.challengeToken ?? null);
+
+    // Ensure the execution context is set — required when the passkey challenge is the very first
+    // view (step-up), where no prior step set it.
+    if (passkeyExecutionId) {
+      setExecutionId(passkeyExecutionId);
+    }
+
+    // Set passkey state to trigger the WebAuthn ceremony
+    setPasskeyState({
+      actionId: 'submit',
+      challenge: passkeyChallenge,
+      creationOptions: passkeyCreationOptions,
+      error: null,
+      executionId: passkeyExecutionId,
+      isActive: true,
+    });
+
+    // Mark the flow initialized so the passkey component renders instead of the loader
+    setIsFlowInitialized(true);
+
+    return true;
+  };
+
   const initializeFlow = async (): Promise<void> => {
     const urlParams: any = getUrlParams();
 
@@ -462,6 +509,12 @@ const SignIn: FC<SignInProps> = ({
       }
 
       if (await handleRedirection(response)) {
+        return;
+      }
+
+      // Passkey challenge can be the first view (e.g. SSO step-up), so handle it on initial load.
+      if (await triggerPasskeyChallenge(response, urlParams.executionId)) {
+        cleanupFlowUrlParams();
         return;
       }
 
@@ -658,29 +711,8 @@ const SignIn: FC<SignInProps> = ({
       if (await handleRedirection(response)) {
         return;
       }
-      if (
-        response.data?.additionalData?.['passkeyChallenge'] ||
-        response.data?.additionalData?.['passkeyCreationOptions']
-      ) {
-        const {passkeyChallenge, passkeyCreationOptions}: any = response.data.additionalData;
-        const effectiveExecutionIdForPasskey: any = response.executionId || effectiveExecutionId;
-
-        // Reset passkey processed ref to allow processing
-        passkeyProcessedRef.current = false;
-
-        await setChallengeToken(response.challengeToken ?? null);
-
-        // Set passkey state to trigger the passkey
-        setPasskeyState({
-          actionId: 'submit',
-          challenge: passkeyChallenge,
-          creationOptions: passkeyCreationOptions,
-          error: null,
-          executionId: effectiveExecutionIdForPasskey,
-          isActive: true,
-        });
+      if (await triggerPasskeyChallenge(response, effectiveExecutionId)) {
         setIsSubmitting(false);
-
         return;
       }
 

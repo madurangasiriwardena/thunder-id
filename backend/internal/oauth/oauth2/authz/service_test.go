@@ -541,6 +541,77 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Si
 	assert.NotEmpty(suite.T(), result.QueryParams)
 }
 
+// TestHandleInitialAuthorizationRequest_SilentSSO_INCOMPLETE_StepUp verifies that when
+// replayWithSession returns INCOMPLETE (session factor doesn't cover the app's required
+// factor), the result is a step-up redirect using a fresh InitiateFlow executionId —
+// not the pre-executed one — so the Gate drives the passkey challenge from scratch.
+// Regression for Fix 1a + Fix 2: passkey session must not silently complete a basic-auth
+// app, and the step-up flow must start fresh so challenge steps reach the browser.
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_INCOMPLETE_StepUp() {
+	app := suite.testApp()
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	// Decision: replay returns INCOMPLETE — passkey doesn't satisfy basic_auth requirements.
+	suite.mockFlowExecService.EXPECT().InitiateAndExecute(mock.Anything,
+		mock.AnythingOfType("*flowexec.FlowInitContext")).
+		Return(&flowexec.FlowStep{Status: flowcm.FlowStatusIncomplete, ExecutionID: "exec-decision"}, nil)
+	// Fresh seeded flow for the Gate — its executionId is what reaches the browser.
+	suite.mockFlowExecService.EXPECT().InitiateFlow(mock.Anything,
+		mock.AnythingOfType("*flowexec.FlowInitContext")).
+		Return("exec-fresh", nil)
+	suite.mockAuthReqStore.EXPECT().AddRequest(mock.Anything, mock.Anything).Return(testAuthID, nil)
+
+	sessionRec := &session.SessionRecord{
+		SessionID:      "sess-abc",
+		SubjectID:      "user-123",
+		SessionGroupID: session.DefaultSessionGroupID,
+		State:          session.SessionStateActive,
+		AuthFactors:    []session.AuthFactor{{Authenticator: "Passkey"}},
+	}
+
+	svc := suite.newServiceWithSession(&stubSessionSvc{})
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), sessionRec)
+
+	assert.Nil(suite.T(), authErr)
+	require.NotNil(suite.T(), result)
+	assert.Empty(suite.T(), result.RedirectURI, "INCOMPLETE replay must not issue a silent code")
+	assert.NotEmpty(suite.T(), result.QueryParams, "INCOMPLETE replay must return step-up query params")
+	assert.Equal(suite.T(), "exec-fresh", result.QueryParams[oauth2const.ExecutionID],
+		"Gate must receive the fresh InitiateFlow executionId, not the pre-executed one")
+}
+
+// TestHandleInitialAuthorizationRequest_PromptNone_InteractionRequired verifies that
+// INCOMPLETE replay + prompt=none returns interaction_required (not login_required).
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_PromptNone_InteractionRequired() {
+	app := suite.testApp()
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	suite.mockFlowExecService.EXPECT().InitiateAndExecute(mock.Anything,
+		mock.AnythingOfType("*flowexec.FlowInitContext")).
+		Return(&flowexec.FlowStep{Status: flowcm.FlowStatusIncomplete, ExecutionID: "exec-stepup"}, nil)
+
+	sessionRec := &session.SessionRecord{
+		SessionID:      "sess-abc",
+		SubjectID:      "user-123",
+		SessionGroupID: session.DefaultSessionGroupID,
+		State:          session.SessionStateActive,
+		AuthFactors:    []session.AuthFactor{{Authenticator: "Passkey"}},
+	}
+	msg := suite.testMsg()
+	msg.RequestQueryParams[oauth2const.RequestParamPrompt] = oauth2const.PromptNone
+
+	svc := suite.newServiceWithSession(&stubSessionSvc{})
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, sessionRec)
+
+	assert.Nil(suite.T(), result)
+	require.NotNil(suite.T(), authErr)
+	assert.Equal(suite.T(), oauth2const.ErrorInteractionRequired, authErr.Code,
+		"session exists but step-up needed → interaction_required, not login_required")
+	assert.True(suite.T(), authErr.SendErrorToClient)
+}
+
 func (suite *AuthorizeServiceTestSuite) TestHandleAuthorizationCallback_InvalidAuthID() {
 	suite.mockAuthReqStore.EXPECT().GetRequest(mock.Anything, "invalid-key").Return(false, authRequestContext{}, nil)
 

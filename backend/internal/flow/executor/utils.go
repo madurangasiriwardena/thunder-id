@@ -41,12 +41,13 @@ func getAuthnServiceName(executorName string) string {
 // Returns empty string if the executor doesn't map to an authn service.
 func GetAuthnServiceName(executorName string) string {
 	executorToAuthnServiceMap := map[string]string{
-		ExecutorNameBasicAuth:  authncm.AuthenticatorCredentials,
-		ExecutorNameSMSAuth:    authncm.AuthenticatorSMSOTP,
-		ExecutorNameOAuth:      authncm.AuthenticatorOAuth,
-		ExecutorNameOIDCAuth:   authncm.AuthenticatorOIDC,
-		ExecutorNameGitHubAuth: authncm.AuthenticatorGithub,
-		ExecutorNameGoogleAuth: authncm.AuthenticatorGoogle,
+		ExecutorNameBasicAuth:   authncm.AuthenticatorCredentials,
+		ExecutorNameSMSAuth:     authncm.AuthenticatorSMSOTP,
+		ExecutorNameOAuth:       authncm.AuthenticatorOAuth,
+		ExecutorNameOIDCAuth:    authncm.AuthenticatorOIDC,
+		ExecutorNameGitHubAuth:  authncm.AuthenticatorGithub,
+		ExecutorNameGoogleAuth:  authncm.AuthenticatorGoogle,
+		ExecutorNamePasskeyAuth: authncm.AuthenticatorPasskey,
 	}
 	return executorToAuthnServiceMap[executorName]
 }

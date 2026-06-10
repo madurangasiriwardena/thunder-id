@@ -52,6 +52,7 @@ func (s *UtilsTestSuite) TestGetAuthnServiceName() {
 		{"OIDC Auth executor", ExecutorNameOIDCAuth, authncm.AuthenticatorOIDC},
 		{"GitHub Auth executor", ExecutorNameGitHubAuth, authncm.AuthenticatorGithub},
 		{"Google Auth executor", ExecutorNameGoogleAuth, authncm.AuthenticatorGoogle},
+		{"Passkey Auth executor", ExecutorNamePasskeyAuth, authncm.AuthenticatorPasskey},
 		{"Unknown executor returns empty string", "UnknownExecutor", ""},
 		{"Provisioning executor returns empty string", ExecutorNameProvisioning, ""},
 		{"AuthAssert executor returns empty string", ExecutorNameAuthAssert, ""},
