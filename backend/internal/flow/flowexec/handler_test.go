@@ -64,12 +64,14 @@ func TestHandleFlowExecutionRequest_CompletedFlow_SetsCookie(t *testing.T) {
 	const sessionID = "test-session-id-should-not-appear"
 
 	mockSvc := NewFlowExecServiceInterfaceMock(t)
+	const testGroup = "test-group"
 	mockSvc.On("Execute",
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 		mock.Anything, mock.Anything, mock.Anything, mock.Anything,
 	).Return(&FlowStep{
 		Status:        common.FlowStatusComplete,
 		SessionHandle: handleID,
+		SessionGroupID: testGroup,
 	}, nil)
 
 	handler := newFlowExecutionHandler(mockSvc)
@@ -82,7 +84,7 @@ func TestHandleFlowExecutionRequest_CompletedFlow_SetsCookie(t *testing.T) {
 	// Acceptance criterion 4: the handle must appear in Set-Cookie
 	setCookie := resp.Header.Get("Set-Cookie")
 	require.NotEmpty(t, setCookie, "Set-Cookie must be present for a completed flow")
-	assert.Contains(t, setCookie, session.SessionCookieName+"="+handleID,
+	assert.Contains(t, setCookie, session.SessionCookieName(testGroup)+"="+handleID,
 		"Set-Cookie must carry the session handle")
 
 	// Acceptance criterion 4: session_id must never appear in Set-Cookie

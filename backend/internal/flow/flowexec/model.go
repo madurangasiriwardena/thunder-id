@@ -86,6 +86,9 @@ type FlowStep struct {
 	// SessionHandle is the opaque session handle to be delivered as a cookie.
 	// It is never serialized into FlowResponse — only the HTTP handler reads it.
 	SessionHandle string
+	// SessionGroupID is the group that scopes the session cookie.
+	// Set alongside SessionHandle so the handler can name the per-group cookie.
+	SessionGroupID string
 }
 
 // FlowData holds the data returned by a flow execution step

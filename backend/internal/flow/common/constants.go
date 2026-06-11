@@ -250,6 +250,13 @@ const (
 	// RuntimeKeyBindingMessage holds the human-readable binding message displayed to the user
 	// on both the consumption device and the authentication device to correlate the CIBA request.
 	RuntimeKeyBindingMessage = "bindingMessage"
+	// RuntimeKeySessionGroupID holds the session group ID resolved for the current flow, so the
+	// session service can scope the created session record to the correct SSO boundary.
+	RuntimeKeySessionGroupID = "sessionGroupId"
+	// RuntimeKeyIncomingSessionHandle holds the opaque handle from the browser's per-group session
+	// cookie at the time the authorization request was initiated. The session service uses it to
+	// apply per-browser session reuse (instead of creating a new record for the same subject+group).
+	RuntimeKeyIncomingSessionHandle = "incomingSessionHandle"
 )
 
 // User input key constants for well-known keys used in UserInputs across flow executors.

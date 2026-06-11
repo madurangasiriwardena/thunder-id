@@ -20,6 +20,7 @@ import {Stack} from '@wso2/oxygen-ui';
 import CertificateSection from './CertificateSection';
 import MetadataSection from './MetadataSection';
 import OAuth2ConfigSection from './OAuth2ConfigSection';
+import useGetSessionGroups from '../../../api/useGetSessionGroups';
 import type {Application} from '../../../models/application';
 import type {ApplicationTemplate} from '../../../models/application-templates';
 import type {InboundAuthConfig} from '../../../models/inbound-auth';
@@ -73,6 +74,10 @@ export default function EditAdvancedSettings({
   oauth2Constraints = undefined,
   onFieldChange,
 }: EditAdvancedSettingsProps) {
+  const ouId = editedApp.ouId ?? application.ouId;
+  const {data: sessionGroupsData} = useGetSessionGroups(ouId);
+  const sessionGroups = (sessionGroupsData?.groups ?? []).map((g) => ({id: g.id, name: g.name}));
+
   const handleOAuth2ConfigChange = (updates: Partial<OAuth2Config>) => {
     const currentInboundAuth: InboundAuthConfig[] = editedApp.inboundAuthConfig ?? application.inboundAuthConfig ?? [];
     const updatedInboundAuth = currentInboundAuth.map((auth) =>
@@ -92,6 +97,7 @@ export default function EditAdvancedSettings({
         oauth2Constraints={oauth2Constraints}
         onOAuth2ConfigChange={handleOAuth2ConfigChange}
         disabled={application.isReadOnly}
+        sessionGroups={sessionGroups}
       />
       <CertificateSection
         certificate={oauth2Config?.certificate}

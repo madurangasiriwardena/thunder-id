@@ -59,15 +59,8 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 	inputs := sysutils.SanitizeStringMap(flowR.Inputs)
 	challengeToken := sysutils.SanitizeString(flowR.ChallengeToken)
 
-	// Thread the session handle from the browser cookie so the session service can
-	// apply per-browser (rather than per-subject+group) session reuse.
-	reqCtx := r.Context()
-	if cookie, cookieErr := r.Cookie(session.SessionCookieName); cookieErr == nil && cookie.Value != "" {
-		reqCtx = session.WithSessionHandle(reqCtx, cookie.Value)
-	}
-
 	flowStep, flowErr := h.flowExecService.Execute(
-		reqCtx, appID, executionID, flowTypeStr, verbose, action, inputs, challengeToken)
+		r.Context(), appID, executionID, flowTypeStr, verbose, action, inputs, challengeToken)
 
 	if flowErr != nil {
 		handleFlowError(r.Context(), w, flowErr)
@@ -92,8 +85,8 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 		ChallengeToken: flowStep.ChallengeToken,
 	}
 
-	if flowStep.SessionHandle != "" {
-		http.SetCookie(w, session.NewSessionCookie(flowStep.SessionHandle))
+	if flowStep.SessionHandle != "" && flowStep.SessionGroupID != "" {
+		http.SetCookie(w, session.NewSessionCookie(flowStep.SessionHandle, flowStep.SessionGroupID))
 	}
 
 	sysutils.WriteSuccessResponse(r.Context(), w, http.StatusOK, flowResp)

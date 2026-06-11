@@ -85,7 +85,7 @@ func (suite *AuthorizeHandlerTestSuite) BeforeTest(suiteName, testName string) {
 
 func (suite *AuthorizeHandlerTestSuite) SetupTest() {
 	suite.mockAuthzService = NewAuthorizeServiceInterfaceMock(suite.T())
-	suite.handler = newAuthorizeHandler(suite.mockAuthzService, nil).(*authorizeHandler)
+	suite.handler = newAuthorizeHandler(suite.mockAuthzService).(*authorizeHandler)
 }
 
 func (suite *AuthorizeHandlerTestSuite) TearDownTest() {
@@ -94,7 +94,7 @@ func (suite *AuthorizeHandlerTestSuite) TearDownTest() {
 
 func (suite *AuthorizeHandlerTestSuite) TestnewAuthorizeHandler() {
 	mockSvc := NewAuthorizeServiceInterfaceMock(suite.T())
-	handler := newAuthorizeHandler(mockSvc, nil)
+	handler := newAuthorizeHandler(mockSvc)
 	assert.NotNil(suite.T(), handler)
 	assert.Implements(suite.T(), (*AuthorizeHandlerInterface)(nil), handler)
 }

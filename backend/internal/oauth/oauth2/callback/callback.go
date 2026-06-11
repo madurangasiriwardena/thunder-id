@@ -32,7 +32,6 @@ import (
 	"github.com/thunder-id/thunderid/internal/oauth/oauth2/ciba"
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
-	"github.com/thunder-id/thunderid/internal/session"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	"github.com/thunder-id/thunderid/internal/system/middleware"
@@ -50,22 +49,19 @@ type flowCallbackRequest struct {
 
 // callbackDispatcher dispatches flow assertion callbacks to the appropriate grant-type handler.
 type callbackDispatcher struct {
-	authZService   oauth2authz.AuthorizeServiceInterface
-	cibaService    ciba.CIBAServiceInterface
-	sessionService session.SessionServiceInterface
-	logger         *log.Logger
+	authZService oauth2authz.AuthorizeServiceInterface
+	cibaService  ciba.CIBAServiceInterface
+	logger       *log.Logger
 }
 
 func newCallbackDispatcher(
 	authZService oauth2authz.AuthorizeServiceInterface,
 	cibaService ciba.CIBAServiceInterface,
-	sessionService session.SessionServiceInterface,
 ) *callbackDispatcher {
 	return &callbackDispatcher{
-		authZService:   authZService,
-		cibaService:    cibaService,
-		sessionService: sessionService,
-		logger:         log.GetLogger().With(log.String(log.LoggerKeyComponentName, "CallbackHandler")),
+		authZService: authZService,
+		cibaService:  cibaService,
+		logger:       log.GetLogger().With(log.String(log.LoggerKeyComponentName, "CallbackHandler")),
 	}
 }
 
@@ -74,9 +70,8 @@ func Initialize(
 	mux *http.ServeMux,
 	authZService oauth2authz.AuthorizeServiceInterface,
 	cibaService ciba.CIBAServiceInterface,
-	sessionService session.SessionServiceInterface,
 ) {
-	d := newCallbackDispatcher(authZService, cibaService, sessionService)
+	d := newCallbackDispatcher(authZService, cibaService)
 	corsOpts := middleware.CORSOptions{
 		AllowedMethods:   []string{"POST"},
 		AllowedHeaders:   middleware.DefaultAllowedHeaders,
@@ -111,14 +106,7 @@ func (d *callbackDispatcher) handleFlowCallback(w http.ResponseWriter, r *http.R
 
 	switch callbackType {
 	case string(oauth2const.GrantTypeAuthorizationCode):
-		// Resolve the browser session from the cookie so the auth code can be linked to it.
-		// Ignore errors — a missing or expired session is not a callback failure.
-		var sessionRec *session.SessionRecord
-		if d.sessionService != nil {
-			sessionRec, _ = d.sessionService.ResolveSession(ctx, r)
-		}
-
-		redirectURI, authErr := d.authZService.HandleAuthorizationCallback(ctx, req.AuthID, req.Assertion, sessionRec)
+		redirectURI, authErr := d.authZService.HandleAuthorizationCallback(ctx, req.AuthID, req.Assertion, r)
 		if authErr != nil {
 			if authErr.SendErrorToClient {
 				d.writeRedirectWithError(ctx, w, authErr)
@@ -126,12 +114,6 @@ func (d *callbackDispatcher) handleFlowCallback(w http.ResponseWriter, r *http.R
 			}
 			d.writeErrorPageRedirect(ctx, w, authErr.Code, authErr.Message, authErr.State)
 			return
-		}
-
-		// Re-affirm the session cookie on the callback response so it survives any browser
-		// redirect chain that may have cleared Set-Cookie headers set on /flow/execute.
-		if sessionRec != nil {
-			http.SetCookie(w, session.NewSessionCookie(sessionRec.HandleID))
 		}
 		utils.WriteSuccessResponse(ctx, w, http.StatusOK, oauth2authz.AuthZPostResponse{RedirectURI: redirectURI})
 

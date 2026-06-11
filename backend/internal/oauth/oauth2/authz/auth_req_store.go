@@ -35,6 +35,9 @@ import (
 // authRequestContext holds OAuth authorization request information.
 type authRequestContext struct {
 	OAuthParameters model.OAuthParameters
+	// SessionGroupID is the resolved session group for this authorization request.
+	// Stored so the callback handler can read the correct per-group cookie.
+	SessionGroupID string
 }
 
 // authorizationRequestStoreInterface defines the interface for authorization request storage.
@@ -156,6 +159,7 @@ func (authzRS *authorizationRequestStore) getJSONDataBytes(authRequestCtx authRe
 		jsonKeyClaimsLocales:       authRequestCtx.OAuthParameters.ClaimsLocales,
 		jsonKeyNonce:               authRequestCtx.OAuthParameters.Nonce,
 		jsonKeyDPoPJkt:             authRequestCtx.OAuthParameters.DPoPJkt,
+		jsonKeySessionGroupID:      authRequestCtx.SessionGroupID,
 	}
 
 	// Add claims_request if present
@@ -258,8 +262,14 @@ func (authzRS *authorizationRequestStore) buildAuthRequestContextFromResultRow(
 		oauthParams.ClaimsRequest = claimsRequest
 	}
 
+	var sessionGroupID string
+	if sgID, ok := requestDataMap[jsonKeySessionGroupID].(string); ok {
+		sessionGroupID = sgID
+	}
+
 	return authRequestContext{
 		OAuthParameters: oauthParams,
+		SessionGroupID:  sessionGroupID,
 	}, nil
 }
 

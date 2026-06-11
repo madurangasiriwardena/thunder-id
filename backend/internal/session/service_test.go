@@ -134,7 +134,7 @@ func TestCreateSessionFromFlow_ManagedGroup(t *testing.T) {
 	assert.NotEmpty(t, rec.HandleID)
 	assert.NotEqual(t, rec.SessionID, rec.HandleID, "SessionID and HandleID must be distinct UUIDs")
 	assert.Equal(t, "user-abc", rec.SubjectID)
-	assert.Equal(t, DefaultSessionGroupID, rec.SessionGroupID)
+	assert.Equal(t, "", rec.SessionGroupID)
 	assert.Equal(t, SessionStateActive, rec.State)
 	assert.Equal(t, BindingTypeCookieStrict, rec.Binding.Type)
 	assert.Equal(t, 0, rec.Version)
@@ -173,6 +173,7 @@ func TestResolveSession_ValidLiveCookie(t *testing.T) {
 	store := newStubStore()
 	svc := &sessionService{store: store}
 
+	const testGroup = "test-group"
 	now := time.Now().UTC()
 	rec := &SessionRecord{
 		SessionID:         "sess-1",
@@ -185,9 +186,9 @@ func TestResolveSession_ValidLiveCookie(t *testing.T) {
 	store.records["handle-1"] = rec
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "handle-1"})
+	req.AddCookie(&http.Cookie{Name: SessionCookieName(testGroup), Value: "handle-1"})
 
-	resolved, err := svc.ResolveSession(context.Background(), req)
+	resolved, err := svc.ResolveSession(context.Background(), req, testGroup)
 	require.NoError(t, err)
 	require.NotNil(t, resolved)
 	assert.Equal(t, "sess-1", resolved.SessionID)
@@ -199,7 +200,7 @@ func TestResolveSession_NoCookie(t *testing.T) {
 	svc := &sessionService{store: newStubStore()}
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	resolved, err := svc.ResolveSession(context.Background(), req)
+	resolved, err := svc.ResolveSession(context.Background(), req, "test-group")
 	require.NoError(t, err)
 	assert.Nil(t, resolved)
 }
@@ -209,9 +210,9 @@ func TestResolveSession_UnknownHandle(t *testing.T) {
 	svc := &sessionService{store: newStubStore()}
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "no-such-handle"})
+	req.AddCookie(&http.Cookie{Name: SessionCookieName("test-group"), Value: "no-such-handle"})
 
-	resolved, err := svc.ResolveSession(context.Background(), req)
+	resolved, err := svc.ResolveSession(context.Background(), req, "test-group")
 	require.NoError(t, err)
 	assert.Nil(t, resolved)
 }
@@ -221,6 +222,7 @@ func TestResolveSession_ExpiredIdle(t *testing.T) {
 	store := newStubStore()
 	svc := &sessionService{store: store}
 
+	const testGroup = "test-group"
 	now := time.Now().UTC()
 	rec := &SessionRecord{
 		SessionID:         "sess-exp",
@@ -232,9 +234,9 @@ func TestResolveSession_ExpiredIdle(t *testing.T) {
 	store.records["handle-exp"] = rec
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "handle-exp"})
+	req.AddCookie(&http.Cookie{Name: SessionCookieName(testGroup), Value: "handle-exp"})
 
-	resolved, err := svc.ResolveSession(context.Background(), req)
+	resolved, err := svc.ResolveSession(context.Background(), req, testGroup)
 	require.NoError(t, err)
 	assert.Nil(t, resolved)
 	assert.Equal(t, 0, store.touchCalls, "TouchSession must not be called for an expired session")
@@ -245,6 +247,7 @@ func TestResolveSession_ExpiredAbsolute(t *testing.T) {
 	store := newStubStore()
 	svc := &sessionService{store: store}
 
+	const testGroup = "test-group"
 	now := time.Now().UTC()
 	rec := &SessionRecord{
 		SessionID:         "sess-abs",
@@ -256,9 +259,9 @@ func TestResolveSession_ExpiredAbsolute(t *testing.T) {
 	store.records["handle-abs"] = rec
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "handle-abs"})
+	req.AddCookie(&http.Cookie{Name: SessionCookieName(testGroup), Value: "handle-abs"})
 
-	resolved, err := svc.ResolveSession(context.Background(), req)
+	resolved, err := svc.ResolveSession(context.Background(), req, testGroup)
 	require.NoError(t, err)
 	assert.Nil(t, resolved)
 }
@@ -268,6 +271,7 @@ func TestResolveSession_NonActiveState(t *testing.T) {
 	store := newStubStore()
 	svc := &sessionService{store: store}
 
+	const testGroup = "test-group"
 	now := time.Now().UTC()
 	rec := &SessionRecord{
 		SessionID:         "sess-inactive",
@@ -279,9 +283,9 @@ func TestResolveSession_NonActiveState(t *testing.T) {
 	store.records["handle-inactive"] = rec
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "handle-inactive"})
+	req.AddCookie(&http.Cookie{Name: SessionCookieName(testGroup), Value: "handle-inactive"})
 
-	resolved, err := svc.ResolveSession(context.Background(), req)
+	resolved, err := svc.ResolveSession(context.Background(), req, testGroup)
 	require.NoError(t, err)
 	assert.Nil(t, resolved)
 }
@@ -296,7 +300,7 @@ func TestCreateSessionFromFlow_FindOrCreate_ReturnsExistingByHandle(t *testing.T
 		SessionID:         "existing-session",
 		HandleID:          "existing-handle",
 		SubjectID:         "user-abc",
-		SessionGroupID:    DefaultSessionGroupID,
+		SessionGroupID:    "",
 		State:             SessionStateActive,
 		IdleExpiresAt:     now.Add(30 * time.Minute),
 		AbsoluteExpiresAt: now.Add(12 * time.Hour),
@@ -343,7 +347,7 @@ func TestCreateSessionFromFlow_PerBrowser_NoHandleAlwaysCreates(t *testing.T) {
 		SessionID:         "old-session",
 		HandleID:          "old-handle",
 		SubjectID:         "user-abc",
-		SessionGroupID:    DefaultSessionGroupID,
+		SessionGroupID:    "",
 		State:             SessionStateActive,
 		IdleExpiresAt:     now.Add(30 * time.Minute),
 		AbsoluteExpiresAt: now.Add(12 * time.Hour),
@@ -375,7 +379,7 @@ func TestCreateSessionFromFlow_PerBrowser_WrongSubjectCreatesNew(t *testing.T) {
 		SessionID:         "other-session",
 		HandleID:          "stolen-handle",
 		SubjectID:         "other-user",
-		SessionGroupID:    DefaultSessionGroupID,
+		SessionGroupID:    "",
 		State:             SessionStateActive,
 		IdleExpiresAt:     now.Add(30 * time.Minute),
 		AbsoluteExpiresAt: now.Add(12 * time.Hour),
@@ -395,14 +399,3 @@ func TestCreateSessionFromFlow_PerBrowser_WrongSubjectCreatesNew(t *testing.T) {
 	assert.Equal(t, 1, store.createCalls)
 }
 
-func TestResolveSessionGroup_WithOUID(t *testing.T) {
-	initTestConfig(t)
-	group := ResolveSessionGroup("ou-123")
-	assert.Equal(t, "ou-123", group.ID, "group ID must equal the OUID")
-}
-
-func TestResolveSessionGroup_EmptyOUID_UsesDefault(t *testing.T) {
-	initTestConfig(t)
-	group := ResolveSessionGroup("")
-	assert.Equal(t, DefaultSessionGroupID, group.ID, "empty OUID must fall back to default group ID")
-}

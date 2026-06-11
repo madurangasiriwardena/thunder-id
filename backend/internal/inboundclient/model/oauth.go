@@ -132,6 +132,7 @@ type OAuthProfile struct {
 	ScopeClaims                        map[string][]string `json:"scopeClaims,omitempty"`
 	Certificate                        *Certificate        `json:"certificate,omitempty"`
 	AcrValues                          []string            `json:"acrValues,omitempty"`
+	SessionGroupID                     string              `json:"sessionGroupId,omitempty"`
 }
 
 // OAuthConfigWithSecret is the wire input shape and the create/update echo response shape.
@@ -154,6 +155,7 @@ type OAuthConfigWithSecret struct {
 	ScopeClaims                        map[string][]string                 `json:"scopeClaims,omitempty"                       yaml:"scope_claims,omitempty"                       jsonschema:"Scope-to-claims mapping. Maps OAuth scopes to user claims for both ID token and userinfo."`
 	Certificate                        *Certificate                        `json:"certificate,omitempty"                       yaml:"certificate,omitempty"                        jsonschema:"Application certificate. Optional. For certificate-based authentication or JWT validation."`
 	AcrValues                          []string                            `json:"acrValues,omitempty"                         yaml:"acr_values,omitempty"                         jsonschema:"Default ACR values applied when the request does not specify acr_values."`
+	SessionGroupID                     string                              `json:"sessionGroupId,omitempty"                    yaml:"session_group_id,omitempty"                   jsonschema:"Session group ID that scopes SSO for this client. Falls back to the OU default group when empty."`
 }
 
 // OAuthConfig is the wire output shape (GET responses). ClientSecret is structurally absent.
@@ -176,6 +178,7 @@ type OAuthConfig struct {
 	ScopeClaims                        map[string][]string                 `json:"scopeClaims,omitempty"              yaml:"scope_claims,omitempty"`
 	Certificate                        *Certificate                        `json:"certificate,omitempty"              yaml:"certificate,omitempty"`
 	AcrValues                          []string                            `json:"acrValues,omitempty"                yaml:"acr_values,omitempty"`
+	SessionGroupID                     string                              `json:"sessionGroupId,omitempty"           yaml:"session_group_id,omitempty"`
 }
 
 // SupportedIDTokenEncryptionAlgs lists JWE key-management algorithms supported for ID token encryption.
@@ -205,6 +208,7 @@ type OAuthClient struct {
 	ScopeClaims                        map[string][]string                 `yaml:"scope_claims,omitempty"`
 	Certificate                        *Certificate                        `yaml:"certificate,omitempty"`
 	AcrValues                          []string                            `yaml:"acr_values,omitempty"`
+	SessionGroupID                     string                              `yaml:"session_group_id,omitempty"`
 }
 
 // IsAllowedGrantType reports whether the given grant type is allowed for this client.

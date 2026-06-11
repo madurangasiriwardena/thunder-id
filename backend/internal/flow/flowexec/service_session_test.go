@@ -50,7 +50,7 @@ func (s *stubSessionService) CreateSessionFromFlow(
 }
 
 func (s *stubSessionService) ResolveSession(
-	_ context.Context, _ *http.Request,
+	_ context.Context, _ *http.Request, _ string,
 ) (*session.SessionRecord, error) {
 	return nil, nil
 }

@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thunder-id/thunderid/internal/sessiongroup"
 	serverconst "github.com/thunder-id/thunderid/internal/system/constants"
 	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 	"github.com/thunder-id/thunderid/internal/system/filter"
@@ -89,15 +90,17 @@ type ConfigurableOUService interface {
 	OrganizationUnitServiceInterface
 	SetOUUserResolver(resolver OUUserResolver)
 	SetOUGroupResolver(resolver OUGroupResolver)
+	SetSessionGroupProvider(svc sessiongroup.SessionGroupServiceInterface)
 }
 
 // OrganizationUnitService provides organization unit management operations.
 type organizationUnitService struct {
-	authzService  sysauthz.SystemAuthorizationServiceInterface
-	ouStore       organizationUnitStoreInterface
-	transactioner transaction.Transactioner
-	userResolver  OUUserResolver
-	groupResolver OUGroupResolver
+	authzService        sysauthz.SystemAuthorizationServiceInterface
+	ouStore             organizationUnitStoreInterface
+	transactioner       transaction.Transactioner
+	userResolver        OUUserResolver
+	groupResolver       OUGroupResolver
+	sessionGroupProvider sessiongroup.SessionGroupServiceInterface
 }
 
 func (ous *organizationUnitService) SetOUUserResolver(resolver OUUserResolver) {
@@ -106,6 +109,10 @@ func (ous *organizationUnitService) SetOUUserResolver(resolver OUUserResolver) {
 
 func (ous *organizationUnitService) SetOUGroupResolver(resolver OUGroupResolver) {
 	ous.groupResolver = resolver
+}
+
+func (ous *organizationUnitService) SetSessionGroupProvider(svc sessiongroup.SessionGroupServiceInterface) {
+	ous.sessionGroupProvider = svc
 }
 
 // newOrganizationUnitService creates a new instance of OrganizationUnitService.
@@ -380,6 +387,13 @@ func (ous *organizationUnitService) CreateOrganizationUnit(
 	}
 
 	logger.Debug(ctx, "Successfully created organization unit", log.String("ouID", createdOU.ID))
+
+	if ous.sessionGroupProvider != nil {
+		if _, sgErr := ous.sessionGroupProvider.EnsureDefaultForOU(ctx, createdOU.ID); sgErr != nil {
+			logger.ErrorWithContext(ctx, "Failed to create default session group for new OU",
+				log.Error(sgErr), log.String("ouID", createdOU.ID))
+		}
+	}
 
 	return createdOU, nil
 }

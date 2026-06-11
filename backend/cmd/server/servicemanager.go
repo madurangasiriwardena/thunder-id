@@ -66,6 +66,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/role"
 	"github.com/thunder-id/thunderid/internal/session"
+	"github.com/thunder-id/thunderid/internal/sessiongroup"
 	"github.com/thunder-id/thunderid/internal/system/cache"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/cryptolib"
@@ -196,6 +197,12 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	// Two-phase initialization: inject user/group resolvers into OU service.
 	ouService.SetOUUserResolver(ouUserResolver)
 	ouService.SetOUGroupResolver(ouGroupResolver)
+
+	sessionGroupSvc, err := sessiongroup.Initialize(mux)
+	if err != nil {
+		logger.FatalWithContext(ctx, "Failed to initialize SessionGroupService", log.Error(err))
+	}
+	ouService.SetSessionGroupProvider(sessionGroupSvc)
 
 	resourceService, resourceExporter, err := resource.Initialize(mux, ouService, consentService)
 	if err != nil {
@@ -381,7 +388,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 		agentService,
 	)
 
-	sessionService := session.Initialize(mux)
+	sessionService := session.Initialize(mux, sessionGroupSvc)
 
 	flowExecService, err := flowexec.Initialize(mux, flowMgtService, inboundClientService, entityProvider,
 		execRegistry, observabilitySvc, runtimeCryptoSvc, sessionService)
@@ -392,7 +399,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	// Initialize OAuth services.
 	err = oauth.Initialize(mux, applicationService, inboundClientService, authnProvider, jwtService, jweService,
 		flowExecService, observabilitySvc, runtimeCryptoSvc, ouService, attributeCacheService, authZService,
-		entityProvider, resourceService, i18nService, idpService, sessionService)
+		entityProvider, resourceService, i18nService, idpService, sessionService, sessionGroupSvc)
 	if err != nil {
 		logger.Fatal(ctx, "Failed to initialize OAuth services", log.Error(err))
 	}

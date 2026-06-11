@@ -22,6 +22,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/thunder-id/thunderid/internal/sessiongroup"
 	dbprovider "github.com/thunder-id/thunderid/internal/system/database/provider"
 	"github.com/thunder-id/thunderid/internal/system/log"
 )
@@ -32,7 +33,7 @@ import (
 // configured, session creation is disabled with a warning log so Redis deployments
 // are not silently broken.
 // TODO Phase B: add Redis-backed store + dual selection in init (mirror authz/init.go).
-func Initialize(_ *http.ServeMux) SessionServiceInterface {
+func Initialize(_ *http.ServeMux, sgSvc sessiongroup.SessionGroupServiceInterface) SessionServiceInterface {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "SessionInit"))
 
 	if dbprovider.GetDBProvider() == nil {
@@ -42,7 +43,7 @@ func Initialize(_ *http.ServeMux) SessionServiceInterface {
 
 	store := newSessionRecordStore(dbprovider.GetDBProvider())
 	csStore := newClientSessionStore(dbprovider.GetDBProvider())
-	svc := newSessionService(store, csStore)
+	svc := newSessionService(store, csStore, sgSvc)
 
 	logger.Debug("Session service initialized (DB-backed store)")
 	return svc
@@ -50,12 +51,12 @@ func Initialize(_ *http.ServeMux) SessionServiceInterface {
 
 // ResolveMiddleware stashes the resolved SessionRecord in the request context.
 // Provided for later phases; not wired into any route in Phase A since no
-// endpoint consumes it yet.
-func ResolveMiddleware(svc SessionServiceInterface) func(http.Handler) http.Handler {
+// endpoint consumes it yet. groupID identifies which per-group cookie to read.
+func ResolveMiddleware(svc SessionServiceInterface, groupID string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if svc != nil {
-				rec, err := svc.ResolveSession(r.Context(), r)
+				rec, err := svc.ResolveSession(r.Context(), r, groupID)
 				if err == nil && rec != nil {
 					r = r.WithContext(context.WithValue(r.Context(), sessionContextKey{}, rec))
 				}

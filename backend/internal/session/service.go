@@ -26,6 +26,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thunder-id/thunderid/internal/sessiongroup"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/log"
 	sysutils "github.com/thunder-id/thunderid/internal/system/utils"
@@ -36,10 +37,10 @@ type SessionServiceInterface interface {
 	// CreateSessionFromFlow creates a SessionRecord from a completed authentication flow.
 	// Returns (nil, nil) when the resolved session group is sessionless.
 	CreateSessionFromFlow(ctx context.Context, in CreateSessionInput) (*SessionRecord, error)
-	// ResolveSession reads the session handle cookie from r and returns the live session.
-	// Returns (nil, nil) when no cookie is present, the handle is unknown, or the session
-	// has expired.
-	ResolveSession(ctx context.Context, r *http.Request) (*SessionRecord, error)
+	// ResolveSession reads the per-group session handle cookie from r and returns the live session.
+	// groupID identifies which per-group cookie to read. Returns (nil, nil) when no cookie is
+	// present, the handle is unknown, or the session has expired.
+	ResolveSession(ctx context.Context, r *http.Request, groupID string) (*SessionRecord, error)
 	// EnsureClientSession returns the existing ClientSession for (sessionID, clientID) or
 	// creates a new one. Uses create-or-reuse semantics.
 	EnsureClientSession(ctx context.Context, sessionID, clientID string, grantedScopes []string) (*ClientSession, error)
@@ -54,29 +55,37 @@ type SessionServiceInterface interface {
 type CreateSessionInput struct {
 	SubjectID string
 	AppID     string
-	// OUID is the OU that owns the app. When non-empty it is used as the session group ID,
-	// enabling OU-scoped SSO across apps in the same OU.
-	OUID            string
+	// OUID is the OU that owns the app. Used by the session service to resolve the default
+	// session group when SessionGroupID is empty.
+	OUID string
+	// SessionGroupID is the resolved session group for this flow. When non-empty, the session
+	// service uses it directly. When empty, EnsureDefaultForOU(OUID) is called.
+	SessionGroupID  string
 	AuthenticatedAt time.Time
 	// AssuranceLevel is the ACR value from the completed flow. When empty,
 	// AssuranceLevelPlaceholder is used.
 	AssuranceLevel string
 	// AuthFactors lists the authentication factors completed in this flow.
 	AuthFactors []AuthFactor
-	// IncomingHandle is the session cookie handle sent by the browser. When present,
-	// CreateSessionFromFlow resolves the session by handle (per-browser identity) so
-	// that two browsers belonging to the same user do not share a single session record.
+	// IncomingHandle is the per-group session cookie handle sent by the browser. When present,
+	// CreateSessionFromFlow resolves the session by handle (per-browser identity) so that two
+	// browsers belonging to the same user do not share a single session record.
 	IncomingHandle string
 }
 
 // sessionService is the implementation of SessionServiceInterface.
 type sessionService struct {
-	store   SessionRecordStoreInterface
-	csStore ClientSessionStoreInterface
+	store        SessionRecordStoreInterface
+	csStore      ClientSessionStoreInterface
+	sessionGroup sessiongroup.SessionGroupServiceInterface
 }
 
-func newSessionService(store SessionRecordStoreInterface, csStore ClientSessionStoreInterface) SessionServiceInterface {
-	return &sessionService{store: store, csStore: csStore}
+func newSessionService(
+	store SessionRecordStoreInterface,
+	csStore ClientSessionStoreInterface,
+	sgSvc sessiongroup.SessionGroupServiceInterface,
+) SessionServiceInterface {
+	return &sessionService{store: store, csStore: csStore, sessionGroup: sgSvc}
 }
 
 // CreateSessionFromFlow returns the active SessionRecord for the subject+group, creating one
@@ -86,9 +95,26 @@ func (s *sessionService) CreateSessionFromFlow(
 ) (*SessionRecord, error) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "SessionService"))
 
-	group := ResolveSessionGroup(in.OUID)
-	if group.Mode != SessionModeManaged {
-		return nil, nil
+	var groupID string
+	if s.sessionGroup != nil {
+		g, err := s.sessionGroup.ResolveGroupForClient(ctx, in.SessionGroupID, in.OUID)
+		if err != nil {
+			logger.ErrorWithContext(ctx, "Failed to resolve session group", log.Error(err))
+			return nil, fmt.Errorf("failed to resolve session group: %w", err)
+		}
+		if g.Mode != SessionModeManaged {
+			return nil, nil
+		}
+		groupID = g.ID
+	} else {
+		// No session group service: check DefaultMode from config, then fall back to OUID.
+		if SessionMode(config.GetServerRuntime().Config.Session.DefaultMode) == SessionModeSessionless {
+			return nil, nil
+		}
+		groupID = in.OUID
+		if groupID == "" {
+			groupID = in.SessionGroupID
+		}
 	}
 
 	// Find-or-create: reuse the session bound to the browser's incoming cookie handle.
@@ -103,7 +129,7 @@ func (s *sessionService) CreateSessionFromFlow(
 			return nil, fmt.Errorf("failed to look up session by handle: %w", handleErr)
 		}
 		if byHandle != nil && byHandle.IsLive(time.Now().UTC()) &&
-			byHandle.SubjectID == in.SubjectID && byHandle.SessionGroupID == group.ID {
+			byHandle.SubjectID == in.SubjectID && byHandle.SessionGroupID == groupID {
 			existing = byHandle
 		}
 	}
@@ -150,7 +176,7 @@ func (s *sessionService) CreateSessionFromFlow(
 	rec := SessionRecord{
 		SessionID:         sessionID,
 		SubjectID:         in.SubjectID,
-		SessionGroupID:    group.ID,
+		SessionGroupID:    groupID,
 		AuthenticatedAt:   in.AuthenticatedAt,
 		AssuranceLevel:    assuranceLevel,
 		AuthFactors:       in.AuthFactors,
@@ -172,18 +198,18 @@ func (s *sessionService) CreateSessionFromFlow(
 	}
 
 	logger.DebugWithContext(ctx, "Session created",
-		log.String("sessionGroupID", group.ID),
+		log.String("sessionGroupID", groupID),
 		log.String("subjectID", in.SubjectID))
 	return &rec, nil
 }
 
-// ResolveSession resolves the incoming session cookie to a live SessionRecord.
+// ResolveSession resolves the per-group session cookie to a live SessionRecord.
 func (s *sessionService) ResolveSession(
-	ctx context.Context, r *http.Request,
+	ctx context.Context, r *http.Request, groupID string,
 ) (*SessionRecord, error) {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "SessionService"))
 
-	cookie, err := r.Cookie(SessionCookieName)
+	cookie, err := r.Cookie(SessionCookieName(groupID))
 	if err != nil {
 		return nil, nil
 	}
@@ -308,19 +334,3 @@ func mergeAuthFactors(existing, incoming []AuthFactor) []AuthFactor {
 	return result
 }
 
-// ResolveSessionGroup maps an OU ID to its session group.
-// When ouID is non-empty, the OU is the group boundary for SSO.
-// Falls back to DefaultSessionGroupID when ouID is empty.
-// TODO Phase C: replace with real per-group config when SessionGroup entity is introduced.
-func ResolveSessionGroup(ouID string) SessionGroup {
-	cfg := config.GetServerRuntime().Config.Session
-	mode := SessionMode(cfg.DefaultMode)
-	groupID := DefaultSessionGroupID
-	if ouID != "" {
-		groupID = ouID
-	}
-	return SessionGroup{
-		ID:   groupID,
-		Mode: mode,
-	}
-}

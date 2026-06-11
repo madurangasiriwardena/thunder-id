@@ -22,6 +22,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -36,6 +37,7 @@ import (
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	oauth2model "github.com/thunder-id/thunderid/internal/oauth/oauth2/model"
 	"github.com/thunder-id/thunderid/internal/session"
+	"github.com/thunder-id/thunderid/internal/sessiongroup"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
@@ -411,14 +413,56 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Se
 
 // --- Phase C: silent SSO tests ---
 
-// newServiceWithSession builds an authorizeService with a sessionService for Phase C tests.
+// testGroupID is the session group ID returned by the SSO test stubs.
+const testGroupID = "test-group"
+
+// newServiceWithSession builds an authorizeService with sessionService and a stub sessionGroupSvc
+// for Phase C tests. Both are required for session resolution to trigger.
 func (suite *AuthorizeServiceTestSuite) newServiceWithSession(svc session.SessionServiceInterface) *authorizeService {
 	as := suite.newService()
 	as.sessionService = svc
+	as.sessionGroupSvc = &stubSessionGroupSvcForSSO{}
 	return as
 }
 
-// stubSessionSvc is an inline stub that satisfies session.SessionServiceInterface for Phase C tests.
+// stubSessionGroupSvcForSSO is a minimal stub for SessionGroupServiceInterface used in SSO tests.
+// It always returns a group with ID testGroupID and mode managed.
+type stubSessionGroupSvcForSSO struct{}
+
+func (s *stubSessionGroupSvcForSSO) CreateSessionGroup(
+	_ context.Context, _ sessiongroup.CreateSessionGroupRequest,
+) (*sessiongroup.SessionGroup, *serviceerror.ServiceError) {
+	return nil, nil
+}
+func (s *stubSessionGroupSvcForSSO) GetSessionGroup(
+	_ context.Context, _ string,
+) (*sessiongroup.SessionGroup, *serviceerror.ServiceError) {
+	return nil, nil
+}
+func (s *stubSessionGroupSvcForSSO) ListSessionGroupsForOU(
+	_ context.Context, _ string,
+) (*sessiongroup.SessionGroupListResponse, *serviceerror.ServiceError) {
+	return nil, nil
+}
+func (s *stubSessionGroupSvcForSSO) UpdateSessionGroup(
+	_ context.Context, _ string, _ sessiongroup.UpdateSessionGroupRequest,
+) (*sessiongroup.SessionGroup, *serviceerror.ServiceError) {
+	return nil, nil
+}
+func (s *stubSessionGroupSvcForSSO) DeleteSessionGroup(_ context.Context, _ string) *serviceerror.ServiceError {
+	return nil
+}
+func (s *stubSessionGroupSvcForSSO) EnsureDefaultForOU(_ context.Context, _ string) (*sessiongroup.SessionGroup, error) {
+	return &sessiongroup.SessionGroup{ID: testGroupID, Mode: sessiongroup.SessionModeManaged}, nil
+}
+func (s *stubSessionGroupSvcForSSO) ResolveGroupForClient(
+	_ context.Context, _, _ string,
+) (*sessiongroup.SessionGroup, error) {
+	return &sessiongroup.SessionGroup{ID: testGroupID, Mode: sessiongroup.SessionModeManaged}, nil
+}
+
+// stubSessionSvc is an inline stub that satisfies session.SessionServiceInterface.
+// ResolveSession always returns nil (no session present).
 type stubSessionSvc struct{}
 
 func (s *stubSessionSvc) CreateSessionFromFlow(
@@ -426,7 +470,7 @@ func (s *stubSessionSvc) CreateSessionFromFlow(
 ) (*session.SessionRecord, error) {
 	return nil, nil
 }
-func (s *stubSessionSvc) ResolveSession(_ context.Context, _ *http.Request) (*session.SessionRecord, error) {
+func (s *stubSessionSvc) ResolveSession(_ context.Context, _ *http.Request, _ string) (*session.SessionRecord, error) {
 	return nil, nil
 }
 func (s *stubSessionSvc) EnsureClientSession(
@@ -441,9 +485,36 @@ func (s *stubSessionSvc) GetClientSessionByID(_ context.Context, _ string) (*ses
 	return nil, nil
 }
 
+// stubSessionSvcWithRecord satisfies SessionServiceInterface and returns a fixed session record
+// from ResolveSession, regardless of the cookie in the request.
+type stubSessionSvcWithRecord struct {
+	rec *session.SessionRecord
+}
+
+func (s *stubSessionSvcWithRecord) CreateSessionFromFlow(
+	_ context.Context, _ session.CreateSessionInput,
+) (*session.SessionRecord, error) {
+	return nil, nil
+}
+func (s *stubSessionSvcWithRecord) ResolveSession(
+	_ context.Context, _ *http.Request, _ string,
+) (*session.SessionRecord, error) {
+	return s.rec, nil
+}
+func (s *stubSessionSvcWithRecord) EnsureClientSession(
+	_ context.Context, _, _ string, _ []string,
+) (*session.ClientSession, error) {
+	return &session.ClientSession{ClientSessionID: "cs-123"}, nil
+}
+func (s *stubSessionSvcWithRecord) GetSessionByID(_ context.Context, _ string) (*session.SessionRecord, error) {
+	return nil, nil
+}
+func (s *stubSessionSvcWithRecord) GetClientSessionByID(_ context.Context, _ string) (*session.ClientSession, error) {
+	return nil, nil
+}
+
 func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_SameGroup() {
 	app := suite.testApp()
-	// app.OUID is empty → group is DefaultSessionGroupID.
 	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
 	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
 		Return(false, "", "")
@@ -456,13 +527,14 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Si
 	sessionRec := &session.SessionRecord{
 		SessionID:      "sess-abc",
 		SubjectID:      "user-123",
-		SessionGroupID: session.DefaultSessionGroupID,
+		SessionGroupID: testGroupID, // must match what stubSessionGroupSvcForSSO returns
 		AssuranceLevel: "low",
 		State:          session.SessionStateActive,
 	}
 
-	svc := suite.newServiceWithSession(&stubSessionSvc{})
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), sessionRec)
+	svc := suite.newServiceWithSession(&stubSessionSvcWithRecord{rec: sessionRec})
+	r := httptest.NewRequest(http.MethodGet, "/oauth2/authorize", nil)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), r)
 
 	assert.Nil(suite.T(), authErr)
 	require.NotNil(suite.T(), result)
@@ -483,14 +555,15 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Si
 	sessionRec := &session.SessionRecord{
 		SessionID:      "sess-abc",
 		SubjectID:      "user-123",
-		SessionGroupID: session.DefaultSessionGroupID,
+		SessionGroupID: testGroupID,
 		State:          session.SessionStateActive,
 	}
 	msg := suite.testMsg()
 	msg.RequestQueryParams[oauth2const.RequestParamPrompt] = oauth2const.PromptLogin
 
-	svc := suite.newServiceWithSession(&stubSessionSvc{})
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, sessionRec)
+	svc := suite.newServiceWithSession(&stubSessionSvcWithRecord{rec: sessionRec})
+	r := httptest.NewRequest(http.MethodGet, "/oauth2/authorize", nil)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, r)
 
 	assert.Nil(suite.T(), authErr)
 	require.NotNil(suite.T(), result)
@@ -518,7 +591,7 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Pr
 
 func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_CrossGroup_FallsThrough() {
 	app := suite.testApp()
-	// app.OUID is empty → DefaultSessionGroupID. Session is from a different group.
+	// stub returns testGroupID; session is from a different group → fallthrough.
 	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
 	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
 		Return(false, "", "")
@@ -528,12 +601,13 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Si
 	sessionRec := &session.SessionRecord{
 		SessionID:      "sess-other",
 		SubjectID:      "user-123",
-		SessionGroupID: "other-group", // different from DefaultSessionGroupID
+		SessionGroupID: "other-group", // different from testGroupID returned by stub
 		State:          session.SessionStateActive,
 	}
 
-	svc := suite.newServiceWithSession(&stubSessionSvc{})
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), sessionRec)
+	svc := suite.newServiceWithSession(&stubSessionSvcWithRecord{rec: sessionRec})
+	r := httptest.NewRequest(http.MethodGet, "/oauth2/authorize", nil)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), r)
 
 	assert.Nil(suite.T(), authErr)
 	require.NotNil(suite.T(), result)
@@ -565,13 +639,14 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Si
 	sessionRec := &session.SessionRecord{
 		SessionID:      "sess-abc",
 		SubjectID:      "user-123",
-		SessionGroupID: session.DefaultSessionGroupID,
+		SessionGroupID: testGroupID,
 		State:          session.SessionStateActive,
 		AuthFactors:    []session.AuthFactor{{Authenticator: "Passkey"}},
 	}
 
-	svc := suite.newServiceWithSession(&stubSessionSvc{})
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), sessionRec)
+	svc := suite.newServiceWithSession(&stubSessionSvcWithRecord{rec: sessionRec})
+	r := httptest.NewRequest(http.MethodGet, "/oauth2/authorize", nil)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), r)
 
 	assert.Nil(suite.T(), authErr)
 	require.NotNil(suite.T(), result)
@@ -595,15 +670,16 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Pr
 	sessionRec := &session.SessionRecord{
 		SessionID:      "sess-abc",
 		SubjectID:      "user-123",
-		SessionGroupID: session.DefaultSessionGroupID,
+		SessionGroupID: testGroupID,
 		State:          session.SessionStateActive,
 		AuthFactors:    []session.AuthFactor{{Authenticator: "Passkey"}},
 	}
 	msg := suite.testMsg()
 	msg.RequestQueryParams[oauth2const.RequestParamPrompt] = oauth2const.PromptNone
 
-	svc := suite.newServiceWithSession(&stubSessionSvc{})
-	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, sessionRec)
+	svc := suite.newServiceWithSession(&stubSessionSvcWithRecord{rec: sessionRec})
+	r := httptest.NewRequest(http.MethodGet, "/oauth2/authorize", nil)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), msg, r)
 
 	assert.Nil(suite.T(), result)
 	require.NotNil(suite.T(), authErr)

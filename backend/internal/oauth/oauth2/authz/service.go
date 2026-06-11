@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -41,6 +42,7 @@ import (
 	oauth2utils "github.com/thunder-id/thunderid/internal/oauth/oauth2/utils"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/session"
+	"github.com/thunder-id/thunderid/internal/sessiongroup"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	"github.com/thunder-id/thunderid/internal/system/jose/jwt"
 	"github.com/thunder-id/thunderid/internal/system/log"
@@ -52,33 +54,34 @@ import (
 type AuthorizeServiceInterface interface {
 	GetAuthorizationCodeDetails(ctx context.Context, clientID string, code string) (*AuthorizationCode, error)
 	// HandleInitialAuthorizationRequest processes an initial authorization request.
-	// sessionRec is the resolved browser session from the incoming cookie (may be nil).
+	// r is the raw HTTP request; the service resolves the browser session internally.
 	// When a silent SSO code is issued, AuthorizationInitResult.RedirectURI is set and the
 	// handler must redirect directly to the client without showing the login page.
 	HandleInitialAuthorizationRequest(
-		ctx context.Context, msg *OAuthMessage, sessionRec *session.SessionRecord,
+		ctx context.Context, msg *OAuthMessage, r *http.Request,
 	) (*AuthorizationInitResult, *AuthorizationError)
 	// HandleAuthorizationCallback processes the assertion from the flow engine and issues the
-	// authorization code redirect. sessionRec is the resolved browser session (may be nil for
-	// sessionless flows or when no valid session cookie was present).
+	// authorization code redirect. r is the raw HTTP request; the service resolves the
+	// per-group session cookie internally using the session group stored in the auth request.
 	HandleAuthorizationCallback(
-		ctx context.Context, authID string, assertion string, sessionRec *session.SessionRecord,
+		ctx context.Context, authID string, assertion string, r *http.Request,
 	) (string, *AuthorizationError)
 }
 
 // authorizeService implements the AuthorizeService for managing OAuth2 authorization flows.
 type authorizeService struct {
-	inboundClient   inboundclient.InboundClientServiceInterface
-	resourceService resource.ResourceServiceInterface
-	authZValidator  AuthorizationValidatorInterface
-	authCodeStore   AuthorizationCodeStoreInterface
-	authReqStore    authorizationRequestStoreInterface
-	parService      par.PARServiceInterface
-	jwtService      jwt.JWTServiceInterface
-	flowExecService flowexec.FlowExecServiceInterface
-	sessionService  session.SessionServiceInterface
-	transactioner   transaction.Transactioner
-	logger          *log.Logger
+	inboundClient    inboundclient.InboundClientServiceInterface
+	resourceService  resource.ResourceServiceInterface
+	authZValidator   AuthorizationValidatorInterface
+	authCodeStore    AuthorizationCodeStoreInterface
+	authReqStore     authorizationRequestStoreInterface
+	parService       par.PARServiceInterface
+	jwtService       jwt.JWTServiceInterface
+	flowExecService  flowexec.FlowExecServiceInterface
+	sessionService   session.SessionServiceInterface
+	sessionGroupSvc  sessiongroup.SessionGroupServiceInterface
+	transactioner    transaction.Transactioner
+	logger           *log.Logger
 }
 
 // newAuthorizeService creates a new instance of authorizeService with injected dependencies.
@@ -92,6 +95,7 @@ func newAuthorizeService(
 	parService par.PARServiceInterface,
 	transactioner transaction.Transactioner,
 	sessionService session.SessionServiceInterface,
+	sessionGroupSvc sessiongroup.SessionGroupServiceInterface,
 ) AuthorizeServiceInterface {
 	return &authorizeService{
 		inboundClient:   inboundClient,
@@ -103,6 +107,7 @@ func newAuthorizeService(
 		jwtService:      jwtService,
 		flowExecService: flowExecService,
 		sessionService:  sessionService,
+		sessionGroupSvc: sessionGroupSvc,
 		transactioner:   transactioner,
 		logger:          log.GetLogger().With(log.String(log.LoggerKeyComponentName, "AuthorizeService")),
 	}
@@ -144,7 +149,7 @@ func (as *authorizeService) GetAuthorizationCodeDetails(
 
 // HandleInitialAuthorizationRequest processes an initial authorization request from the client.
 func (as *authorizeService) HandleInitialAuthorizationRequest(
-	ctx context.Context, msg *OAuthMessage, sessionRec *session.SessionRecord,
+	ctx context.Context, msg *OAuthMessage, r *http.Request,
 ) (*AuthorizationInitResult, *AuthorizationError) {
 	clientID := msg.RequestQueryParams[oauth2const.RequestParamClientID]
 	requestURI := msg.RequestQueryParams[oauth2const.RequestParamRequestURI]
@@ -174,8 +179,7 @@ func (as *authorizeService) HandleInitialAuthorizationRequest(
 
 	// If request_uri is present, resolve the pushed authorization request.
 	if requestURI != "" {
-		// TODO Phase C: PAR requests don't carry prompt; sessionRec not threaded here yet.
-		return as.handlePARAuthorizationRequest(ctx, requestURI, clientID, app)
+		return as.handlePARAuthorizationRequest(ctx, requestURI, clientID, app, r)
 	}
 
 	// Enforce PAR requirement: if PAR is required (per-client or global), reject requests without request_uri.
@@ -186,12 +190,13 @@ func (as *authorizeService) HandleInitialAuthorizationRequest(
 		}
 	}
 
-	return as.handleStandardAuthorizationRequest(ctx, msg, app, sessionRec)
+	return as.handleStandardAuthorizationRequest(ctx, msg, app, r)
 }
 
 // handlePARAuthorizationRequest resolves a request_uri from a PAR and continues the authorization flow.
 func (as *authorizeService) handlePARAuthorizationRequest(
 	ctx context.Context, requestURI string, clientID string, app *inboundmodel.OAuthClient,
+	r *http.Request,
 ) (*AuthorizationInitResult, *AuthorizationError) {
 	oauthParams, err := as.parService.ResolvePushedAuthorizationRequest(ctx, requestURI, clientID)
 	if err != nil {
@@ -208,14 +213,13 @@ func (as *authorizeService) handlePARAuthorizationRequest(
 		}
 	}
 
-	// TODO Phase C: pass sessionRec through PAR path once prompt is supported there.
-	return as.initiateFlowAndStoreRequest(ctx, oauthParams, app, nil)
+	return as.initiateFlowAndStoreRequest(ctx, oauthParams, app, r)
 }
 
 // handleStandardAuthorizationRequest processes a standard authorization request (without PAR).
 func (as *authorizeService) handleStandardAuthorizationRequest(
 	ctx context.Context, msg *OAuthMessage, app *inboundmodel.OAuthClient,
-	sessionRec *session.SessionRecord,
+	r *http.Request,
 ) (*AuthorizationInitResult, *AuthorizationError) {
 	// Extract required parameters.
 	redirectURI := msg.RequestQueryParams[oauth2const.RequestParamRedirectURI]
@@ -320,22 +324,37 @@ func (as *authorizeService) handleStandardAuthorizationRequest(
 		oauthParams.RedirectURI = app.RedirectURIs[0]
 	}
 
-	return as.initiateFlowAndStoreRequest(ctx, oauthParams, app, sessionRec)
+	return as.initiateFlowAndStoreRequest(ctx, oauthParams, app, r)
 }
 
 // initiateFlowAndStoreRequest initiates the authentication flow and stores the authorization request context.
 // This is the common path shared by both standard and PAR-based authorization requests.
-// When sessionRec is non-nil and prompt != "login", a silent SSO code may be issued directly.
+// When a live per-group session exists and prompt != "login", a silent SSO code may be issued directly.
 func (as *authorizeService) initiateFlowAndStoreRequest(
 	ctx context.Context, oauthParams *oauth2model.OAuthParameters, app *inboundmodel.OAuthClient,
-	sessionRec *session.SessionRecord,
+	r *http.Request,
 ) (*AuthorizationInitResult, *AuthorizationError) {
+	// Resolve the session group for this client.
+	var groupID string
+	var sessionRec *session.SessionRecord
+	if as.sessionGroupSvc != nil {
+		g, err := as.sessionGroupSvc.ResolveGroupForClient(ctx, app.SessionGroupID, app.OUID)
+		if err != nil {
+			as.logger.ErrorWithContext(ctx, "Failed to resolve session group", log.Error(err))
+		} else {
+			groupID = g.ID
+			// Resolve the per-group session cookie when session management is available.
+			if as.sessionService != nil && r != nil {
+				sessionRec, _ = as.sessionService.ResolveSession(ctx, r, groupID)
+			}
+		}
+	}
+
 	// Silent SSO: replay the flow seeded from a live session when one is present and the
 	// client has not explicitly requested re-authentication.
 	if as.sessionService != nil && sessionRec != nil && oauthParams.Prompt != oauth2const.PromptLogin {
-		group := session.ResolveSessionGroup(app.OUID)
-		if sessionRec.SessionGroupID == group.ID {
-			return as.replayWithSession(ctx, oauthParams, app, sessionRec)
+		if sessionRec.SessionGroupID == groupID {
+			return as.replayWithSession(ctx, oauthParams, app, sessionRec, groupID)
 		}
 		// Different group: session exists but is not in scope for this app → fall through to login.
 	}
@@ -355,7 +374,8 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 	essentialAttributes, optionalAttributes := getRequiredAttributes(
 		oauthParams.StandardScopes, oauthParams.ClaimsRequest, oauthParams.ResponseType, app)
 
-	// Initiate flow with OAuth context.
+	// Initiate flow with OAuth context. Thread the session group and incoming handle so
+	// the flow engine can scope the session record to the right SSO boundary.
 	runtimeData := map[string]string{
 		flowcm.RuntimeKeyClientID:                      oauthParams.ClientID,
 		flowcm.RuntimeKeyRequestedPermissions:          utils.StringifyStringArray(oauthParams.PermissionScopes, " "),
@@ -363,6 +383,15 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 		flowcm.RuntimeKeyRequiredOptionalAttributes:    optionalAttributes,
 		flowcm.RuntimeKeyRequiredLocales:               oauthParams.ClaimsLocales,
 		flowcm.RuntimeKeyUserAttributesCacheTTLSeconds: fmt.Sprintf("%d", resolveUserAttributesCacheTTL(app)),
+		flowcm.RuntimeKeySessionGroupID:                groupID,
+	}
+	if sessionRec != nil {
+		runtimeData[flowcm.RuntimeKeyIncomingSessionHandle] = sessionRec.HandleID
+	} else if r != nil && groupID != "" {
+		// No live session, but store any handle present in the cookie for per-browser reuse.
+		if c, cookieErr := r.Cookie(session.SessionCookieName(groupID)); cookieErr == nil {
+			runtimeData[flowcm.RuntimeKeyIncomingSessionHandle] = c.Value
+		}
 	}
 	if effectiveAcrValues != "" {
 		runtimeData[flowcm.RuntimeKeyRequestedAuthClasses] = effectiveAcrValues
@@ -388,6 +417,7 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 
 	authRequestCtx := authRequestContext{
 		OAuthParameters: *oauthParams,
+		SessionGroupID:  groupID,
 	}
 
 	// Store authorization request context in the store.
@@ -438,16 +468,11 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 //     only as the DECIDE step and its pre-executed context is discarded.
 func (as *authorizeService) replayWithSession(
 	ctx context.Context, oauthParams *oauth2model.OAuthParameters,
-	app *inboundmodel.OAuthClient, sessionRec *session.SessionRecord,
+	app *inboundmodel.OAuthClient, sessionRec *session.SessionRecord, groupID string,
 ) (*AuthorizationInitResult, *AuthorizationError) {
 	satisfiedFactors := make([]flowexec.SatisfiedFactor, 0, len(sessionRec.AuthFactors))
 	for _, f := range sessionRec.AuthFactors {
 		satisfiedFactors = append(satisfiedFactors, flowexec.SatisfiedFactor{Authenticator: f.Authenticator})
-	}
-
-	ouID := sessionRec.SessionGroupID
-	if ouID == session.DefaultSessionGroupID {
-		ouID = ""
 	}
 
 	effectiveAcrValues := requestvalidator.ResolveACRValues(oauthParams.AcrValues, app.AcrValues)
@@ -461,6 +486,8 @@ func (as *authorizeService) replayWithSession(
 		flowcm.RuntimeKeyRequiredOptionalAttributes:    optionalAttributes,
 		flowcm.RuntimeKeyRequiredLocales:               oauthParams.ClaimsLocales,
 		flowcm.RuntimeKeyUserAttributesCacheTTLSeconds: fmt.Sprintf("%d", resolveUserAttributesCacheTTL(app)),
+		flowcm.RuntimeKeySessionGroupID:                groupID,
+		flowcm.RuntimeKeyIncomingSessionHandle:         sessionRec.HandleID,
 	}
 	if effectiveAcrValues != "" {
 		runtimeData[flowcm.RuntimeKeyRequestedAuthClasses] = effectiveAcrValues
@@ -473,7 +500,7 @@ func (as *authorizeService) replayWithSession(
 		SatisfiedAuthenticators: satisfiedFactors,
 		Subject: &flowexec.SeededSubject{
 			UserID: sessionRec.SubjectID,
-			OUID:   ouID,
+			OUID:   app.OUID,
 		},
 	}
 
@@ -523,7 +550,7 @@ func (as *authorizeService) replayWithSession(
 		}
 	}
 
-	authRequestCtx := authRequestContext{OAuthParameters: *oauthParams}
+	authRequestCtx := authRequestContext{OAuthParameters: *oauthParams, SessionGroupID: groupID}
 	identifier, storeErr := as.authReqStore.AddRequest(ctx, authRequestCtx)
 	if storeErr != nil {
 		as.logger.ErrorWithContext(ctx, "Failed to store authorization request context for step-up",
@@ -671,8 +698,9 @@ func (as *authorizeService) finalizeAuthorizationCode(
 // HandleAuthorizationCallback processes the callback assertion from the flow engine.
 // Returns the client redirect URI (with authorization code) on success, or a structured error.
 func (as *authorizeService) HandleAuthorizationCallback(
-	ctx context.Context, authID string, assertion string, sessionRec *session.SessionRecord,
+	ctx context.Context, authID string, assertion string, r *http.Request,
 ) (string, *AuthorizationError) {
+	var sessionRec *session.SessionRecord
 	var redirectURI string
 	var authErr *AuthorizationError
 
@@ -693,6 +721,11 @@ func (as *authorizeService) HandleAuthorizationCallback(
 				Message: "Failed to process authorization request",
 			}
 			return err
+		}
+
+		// Resolve the per-group session from the incoming cookie.
+		if as.sessionService != nil && r != nil && authRequestCtx.SessionGroupID != "" {
+			sessionRec, _ = as.sessionService.ResolveSession(ctx, r, authRequestCtx.SessionGroupID)
 		}
 
 		if assertion == "" {

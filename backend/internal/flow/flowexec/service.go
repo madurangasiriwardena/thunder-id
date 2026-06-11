@@ -170,14 +170,17 @@ func (s *flowExecService) Execute(ctx context.Context,
 		}
 
 		if engineCtx.AuthenticatedUser.IsAuthenticated && s.sessionService != nil {
+			sessionGroupID := engineCtx.RuntimeData[common.RuntimeKeySessionGroupID]
+			incomingHandle := engineCtx.RuntimeData[common.RuntimeKeyIncomingSessionHandle]
 			sessionInput := session.CreateSessionInput{
 				SubjectID:       engineCtx.AuthenticatedUser.UserID,
 				AppID:           engineCtx.AppID,
 				OUID:            engineCtx.Application.OUID,
+				SessionGroupID:  sessionGroupID,
 				AuthenticatedAt: time.Now().UTC(),
 				AssuranceLevel:  engineCtx.RuntimeData[common.RuntimeKeySelectedAuthClass],
 				AuthFactors:     extractAuthFactors(engineCtx.ExecutionHistory),
-				IncomingHandle:  session.GetSessionHandleFromContext(ctx),
+				IncomingHandle:  incomingHandle,
 			}
 			sessionRec, sessionErr := s.sessionService.CreateSessionFromFlow(ctx, sessionInput)
 			if sessionErr != nil {
@@ -187,6 +190,7 @@ func (s *flowExecService) Execute(ctx context.Context,
 			}
 			if sessionRec != nil {
 				flowStep.SessionHandle = sessionRec.HandleID
+				flowStep.SessionGroupID = sessionGroupID
 			}
 		}
 	} else {

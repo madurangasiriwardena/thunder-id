@@ -51,7 +51,7 @@ func TestCallbackDispatcherSuite(t *testing.T) {
 func (suite *CallbackDispatcherTestSuite) SetupTest() {
 	suite.mockAuthZ = authzmock.NewAuthorizeServiceInterfaceMock(suite.T())
 	suite.mockCIBA = cibamock.NewCIBAServiceInterfaceMock(suite.T())
-	suite.dispatcher = newCallbackDispatcher(suite.mockAuthZ, suite.mockCIBA, nil)
+	suite.dispatcher = newCallbackDispatcher(suite.mockAuthZ, suite.mockCIBA)
 
 	_ = config.InitializeServerRuntime("test", &config.Config{
 		JWT: config.JWTConfig{

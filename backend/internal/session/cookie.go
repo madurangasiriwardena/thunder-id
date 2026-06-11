@@ -43,19 +43,22 @@ func GetSessionHandleFromContext(ctx context.Context) string {
 	return ""
 }
 
-// SessionCookieName is the __Host- prefixed cookie that carries the session handle.
+// SessionCookieName returns the __Host- prefixed cookie name for the given session group.
+// Each group gets a distinct cookie so that apps in different groups never share handles.
 // The __Host- prefix enforces Secure, Path=/, and no Domain — providing strict
 // first-party scoping per RFC 6265bis.
-const SessionCookieName = "__Host-tid_session"
+func SessionCookieName(groupID string) string {
+	return "__Host-tid_session_" + groupID
+}
 
-// NewSessionCookie builds the Set-Cookie value for a new session handle.
+// NewSessionCookie builds the Set-Cookie value for a new session handle scoped to groupID.
 // Lifetime is derived from the configured AbsoluteTimeout so the cookie and
 // the server-side record share the same expiry boundary.
-func NewSessionCookie(handleID string) *http.Cookie {
+func NewSessionCookie(handleID, groupID string) *http.Cookie {
 	absoluteTimeout := config.GetServerRuntime().Config.Session.AbsoluteTimeout
 	expires := time.Now().UTC().Add(time.Duration(absoluteTimeout) * time.Second)
 	return &http.Cookie{
-		Name:     SessionCookieName,
+		Name:     SessionCookieName(groupID),
 		Value:    handleID,
 		Path:     "/",
 		Secure:   true,
@@ -66,10 +69,11 @@ func NewSessionCookie(handleID string) *http.Cookie {
 	}
 }
 
-// ClearSessionCookie returns a cookie that instructs the browser to delete the session cookie.
-func ClearSessionCookie() *http.Cookie {
+// ClearSessionCookie returns a cookie that instructs the browser to delete the session cookie
+// for the given group.
+func ClearSessionCookie(groupID string) *http.Cookie {
 	return &http.Cookie{
-		Name:     SessionCookieName,
+		Name:     SessionCookieName(groupID),
 		Value:    "",
 		Path:     "/",
 		Secure:   true,

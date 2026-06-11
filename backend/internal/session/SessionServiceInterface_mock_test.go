@@ -323,8 +323,8 @@ func (_c *SessionServiceInterfaceMock_GetSessionByID_Call) RunAndReturn(run func
 }
 
 // ResolveSession provides a mock function for the type SessionServiceInterfaceMock
-func (_mock *SessionServiceInterfaceMock) ResolveSession(ctx context.Context, r *http.Request) (*SessionRecord, error) {
-	ret := _mock.Called(ctx, r)
+func (_mock *SessionServiceInterfaceMock) ResolveSession(ctx context.Context, r *http.Request, groupID string) (*SessionRecord, error) {
+	ret := _mock.Called(ctx, r, groupID)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ResolveSession")
@@ -332,18 +332,18 @@ func (_mock *SessionServiceInterfaceMock) ResolveSession(ctx context.Context, r 
 
 	var r0 *SessionRecord
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *http.Request) (*SessionRecord, error)); ok {
-		return returnFunc(ctx, r)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *http.Request, string) (*SessionRecord, error)); ok {
+		return returnFunc(ctx, r, groupID)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, *http.Request) *SessionRecord); ok {
-		r0 = returnFunc(ctx, r)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, *http.Request, string) *SessionRecord); ok {
+		r0 = returnFunc(ctx, r, groupID)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*SessionRecord)
 		}
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, *http.Request) error); ok {
-		r1 = returnFunc(ctx, r)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, *http.Request, string) error); ok {
+		r1 = returnFunc(ctx, r, groupID)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -358,11 +358,12 @@ type SessionServiceInterfaceMock_ResolveSession_Call struct {
 // ResolveSession is a helper method to define mock.On call
 //   - ctx context.Context
 //   - r *http.Request
-func (_e *SessionServiceInterfaceMock_Expecter) ResolveSession(ctx interface{}, r interface{}) *SessionServiceInterfaceMock_ResolveSession_Call {
-	return &SessionServiceInterfaceMock_ResolveSession_Call{Call: _e.mock.On("ResolveSession", ctx, r)}
+//   - groupID string
+func (_e *SessionServiceInterfaceMock_Expecter) ResolveSession(ctx interface{}, r interface{}, groupID interface{}) *SessionServiceInterfaceMock_ResolveSession_Call {
+	return &SessionServiceInterfaceMock_ResolveSession_Call{Call: _e.mock.On("ResolveSession", ctx, r, groupID)}
 }
 
-func (_c *SessionServiceInterfaceMock_ResolveSession_Call) Run(run func(ctx context.Context, r *http.Request)) *SessionServiceInterfaceMock_ResolveSession_Call {
+func (_c *SessionServiceInterfaceMock_ResolveSession_Call) Run(run func(ctx context.Context, r *http.Request, groupID string)) *SessionServiceInterfaceMock_ResolveSession_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -372,9 +373,14 @@ func (_c *SessionServiceInterfaceMock_ResolveSession_Call) Run(run func(ctx cont
 		if args[1] != nil {
 			arg1 = args[1].(*http.Request)
 		}
+		var arg2 string
+		if args[2] != nil {
+			arg2 = args[2].(string)
+		}
 		run(
 			arg0,
 			arg1,
+			arg2,
 		)
 	})
 	return _c
@@ -385,7 +391,7 @@ func (_c *SessionServiceInterfaceMock_ResolveSession_Call) Return(sessionRecord 
 	return _c
 }
 
-func (_c *SessionServiceInterfaceMock_ResolveSession_Call) RunAndReturn(run func(ctx context.Context, r *http.Request) (*SessionRecord, error)) *SessionServiceInterfaceMock_ResolveSession_Call {
+func (_c *SessionServiceInterfaceMock_ResolveSession_Call) RunAndReturn(run func(ctx context.Context, r *http.Request, groupID string) (*SessionRecord, error)) *SessionServiceInterfaceMock_ResolveSession_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -19,21 +19,28 @@
 // Package session provides protocol-free durable browser session management for ThunderID.
 package session
 
-import "time"
+import (
+	"time"
+
+	"github.com/thunder-id/thunderid/internal/sessiongroup"
+)
 
 const (
-	// DefaultSessionGroupID is the ID of the default session group. Every app resolves
-	// here until per-group config is introduced in Phase B.
-	DefaultSessionGroupID = "default"
-
 	// AssuranceLevelPlaceholder is used until real ACR derivation from the flow is added.
-	// TODO Phase B: derive real assurance level from flow ACR.
 	AssuranceLevelPlaceholder = "placeholder"
 
 	// BindingTypeCookieStrict marks a session whose handle is bound to a strict first-party cookie.
-	// The struct is shaped to accommodate future key-bound binding types.
-	// TODO later phases: add key-bound binding types.
 	BindingTypeCookieStrict = "cookie-strict"
+)
+
+// SessionMode is an alias for sessiongroup.SessionMode so callers can import just this package.
+type SessionMode = sessiongroup.SessionMode
+
+const (
+	// SessionModeManaged re-exports sessiongroup.SessionModeManaged.
+	SessionModeManaged = sessiongroup.SessionModeManaged
+	// SessionModeSessionless re-exports sessiongroup.SessionModeSessionless.
+	SessionModeSessionless = sessiongroup.SessionModeSessionless
 )
 
 // SessionState represents the lifecycle state of a session.
@@ -44,27 +51,9 @@ const (
 	SessionStateActive SessionState = "ACTIVE"
 )
 
-// SessionMode controls whether a session is created for apps in a group.
-type SessionMode string
-
-const (
-	// SessionModeManaged causes a durable SessionRecord to be created on login.
-	SessionModeManaged SessionMode = "managed"
-	// SessionModeSessionless disables session creation for the group.
-	SessionModeSessionless SessionMode = "sessionless"
-)
-
 // BindingContext describes how a session handle is bound to the client.
-// Modeled as a struct so other binding types can be added later.
 type BindingContext struct {
 	Type string
-}
-
-// SessionGroup is a minimal placeholder until per-group config is introduced (Phase B).
-// TODO Phase B: real per-group config; for now every app maps to the default group.
-type SessionGroup struct {
-	ID   string
-	Mode SessionMode
 }
 
 // AuthFactor records a completed authentication factor in a session.

@@ -797,6 +797,7 @@ func buildOAuthProfileFromProcessed(inboundAuth inboundmodel.InboundAuthConfigPr
 		UserInfo:                           oa.UserInfo,
 		Certificate:                        oa.Certificate,
 		AcrValues:                          oa.AcrValues,
+		SessionGroupID:                     oa.SessionGroupID,
 	}
 }
 
@@ -1576,6 +1577,7 @@ func buildApplicationResponse(dto *model.ApplicationProcessedDTO) *model.Applica
 					UserInfo:                           oauthAppConfig.UserInfo,
 					ScopeClaims:                        oauthAppConfig.ScopeClaims,
 					AcrValues:                          oauthAppConfig.AcrValues,
+					SessionGroupID:                     oauthAppConfig.SessionGroupID,
 				},
 			})
 		}
@@ -1702,6 +1704,7 @@ func buildOAuthInboundAuthConfigProcessedDTO(
 			ScopeClaims:                        scopeClaims,
 			Certificate:                        certificate,
 			AcrValues:                          inboundAuthConfig.OAuthConfig.AcrValues,
+			SessionGroupID:                     inboundAuthConfig.OAuthConfig.SessionGroupID,
 		},
 	}
 }
@@ -1763,6 +1766,7 @@ func buildReturnApplicationDTO(
 				ScopeClaims:                        scopeClaims,
 				Certificate:                        oauthCert,
 				AcrValues:                          inboundAuthConfig.OAuthConfig.AcrValues,
+				SessionGroupID:                     inboundAuthConfig.OAuthConfig.SessionGroupID,
 			},
 		}
 		returnApp.InboundAuthConfig = []inboundmodel.InboundAuthConfigWithSecret{returnInboundAuthConfig}

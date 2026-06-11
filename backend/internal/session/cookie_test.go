@@ -42,10 +42,11 @@ func initCookieTestConfig(t *testing.T) {
 func TestNewSessionCookie(t *testing.T) {
 	initCookieTestConfig(t)
 
-	cookie := NewSessionCookie("test-handle-id")
+	const testGroup = "test-group"
+	cookie := NewSessionCookie("test-handle-id", testGroup)
 	require.NotNil(t, cookie)
 
-	assert.Equal(t, SessionCookieName, cookie.Name, "cookie name must be __Host-tid_session")
+	assert.Equal(t, SessionCookieName(testGroup), cookie.Name, "cookie name must be __Host-tid_session_<group>")
 	assert.Equal(t, "test-handle-id", cookie.Value, "cookie value must be the handle, not the session ID")
 	assert.Equal(t, "/", cookie.Path)
 	assert.Empty(t, cookie.Domain, "Domain must be empty for __Host- prefix semantics")
@@ -61,8 +62,9 @@ func TestNewSessionCookie_ValueIsHandle(t *testing.T) {
 
 	const handleID = "handle-abc-123"
 	const sessionID = "session-xyz-456"
+	const testGroup = "test-group"
 
-	cookie := NewSessionCookie(handleID)
+	cookie := NewSessionCookie(handleID, testGroup)
 	assert.Equal(t, handleID, cookie.Value)
 	assert.NotEqual(t, sessionID, cookie.Value, "session_id must never appear in the cookie value")
 }

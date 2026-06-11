@@ -77,3 +77,24 @@ CREATE TABLE "ENTITY_IDENTIFIER" (
 
 -- Index for fast identifier lookups (primary use case for authentication)
 CREATE INDEX idx_entity_identifier_lookup ON "ENTITY_IDENTIFIER" (NAME, VALUE);
+
+-- Table to store Session Groups (SSO boundaries within an OU)
+CREATE TABLE "SESSION_GROUP" (
+    DEPLOYMENT_ID    VARCHAR(255) NOT NULL,
+    SESSION_GROUP_ID VARCHAR(36)  NOT NULL,
+    OU_ID            VARCHAR(36)  NOT NULL,
+    NAME             VARCHAR(100) NOT NULL,
+    SESSION_MODE     VARCHAR(20)  NOT NULL DEFAULT 'managed',
+    IS_DEFAULT       BOOLEAN      NOT NULL DEFAULT FALSE,
+    CREATED_AT       TIMESTAMPTZ  NOT NULL,
+    UPDATED_AT       TIMESTAMPTZ  NOT NULL,
+    PRIMARY KEY (SESSION_GROUP_ID, DEPLOYMENT_ID)
+);
+
+-- Partial unique index: at most one default group per (OU, deployment)
+CREATE UNIQUE INDEX idx_session_group_default_ou
+    ON "SESSION_GROUP" (OU_ID, DEPLOYMENT_ID)
+    WHERE IS_DEFAULT = TRUE;
+
+-- Index for listing session groups by OU
+CREATE INDEX idx_session_group_ou ON "SESSION_GROUP" (OU_ID, DEPLOYMENT_ID);

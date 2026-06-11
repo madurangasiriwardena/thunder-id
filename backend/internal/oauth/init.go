@@ -48,6 +48,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/ou"
 	"github.com/thunder-id/thunderid/internal/resource"
 	"github.com/thunder-id/thunderid/internal/session"
+	"github.com/thunder-id/thunderid/internal/sessiongroup"
 	"github.com/thunder-id/thunderid/internal/system/config"
 	syshttp "github.com/thunder-id/thunderid/internal/system/http"
 	i18nmgt "github.com/thunder-id/thunderid/internal/system/i18n/mgt"
@@ -76,6 +77,7 @@ func Initialize(
 	i18nService i18nmgt.I18nServiceInterface,
 	idpService idp.IDPServiceInterface,
 	sessionService session.SessionServiceInterface,
+	sessionGroupSvc sessiongroup.SessionGroupServiceInterface,
 ) error {
 	jwks.Initialize(mux, runtimeCrypto)
 	httpClient := syshttp.NewHTTPClientWithCheckRedirect(func(req *http.Request, _ []*http.Request) error {
@@ -92,7 +94,7 @@ func Initialize(
 	cibaService := ciba.Initialize(mux, jwtService, inboundClient, authnProvider, flowExecService,
 		discoveryService, resourceService)
 	oauth2AuthzService, err := oauth2authz.Initialize(mux, inboundClient, resourceService,
-		jwtService, flowExecService, parService, sessionService)
+		jwtService, flowExecService, parService, sessionService, sessionGroupSvc)
 	if err != nil {
 		return err
 	}
@@ -105,6 +107,6 @@ func Initialize(
 	userinfo.Initialize(mux, jwtService, jweService, resolver,
 		tokenValidator, inboundClient, attributeCacheSvc,
 		discoveryService, dpopVerifier)
-	callback.Initialize(mux, oauth2AuthzService, cibaService, sessionService)
+	callback.Initialize(mux, oauth2AuthzService, cibaService)
 	return nil
 }

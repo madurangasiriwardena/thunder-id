@@ -473,6 +473,7 @@ func BuildOAuthClient(
 		UserInfo:                           p.UserInfo,
 		Certificate:                        p.Certificate,
 		AcrValues:                          p.AcrValues,
+		SessionGroupID:                     p.SessionGroupID,
 	}
 	for _, gt := range p.GrantTypes {
 		client.GrantTypes = append(client.GrantTypes, oauth2const.GrantType(gt))

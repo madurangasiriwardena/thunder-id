@@ -9,6 +9,7 @@ import (
 
 	mock "github.com/stretchr/testify/mock"
 	"github.com/thunder-id/thunderid/internal/ou"
+	"github.com/thunder-id/thunderid/internal/sessiongroup"
 	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 	"github.com/thunder-id/thunderid/internal/system/filter"
 )
@@ -1305,6 +1306,46 @@ func (_c *ConfigurableOUServiceMock_SetOUUserResolver_Call) Return() *Configurab
 }
 
 func (_c *ConfigurableOUServiceMock_SetOUUserResolver_Call) RunAndReturn(run func(resolver ou.OUUserResolver)) *ConfigurableOUServiceMock_SetOUUserResolver_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetSessionGroupProvider provides a mock function for the type ConfigurableOUServiceMock
+func (_mock *ConfigurableOUServiceMock) SetSessionGroupProvider(svc sessiongroup.SessionGroupServiceInterface) {
+	_mock.Called(svc)
+	return
+}
+
+// ConfigurableOUServiceMock_SetSessionGroupProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetSessionGroupProvider'
+type ConfigurableOUServiceMock_SetSessionGroupProvider_Call struct {
+	*mock.Call
+}
+
+// SetSessionGroupProvider is a helper method to define mock.On call
+//   - svc sessiongroup.SessionGroupServiceInterface
+func (_e *ConfigurableOUServiceMock_Expecter) SetSessionGroupProvider(svc interface{}) *ConfigurableOUServiceMock_SetSessionGroupProvider_Call {
+	return &ConfigurableOUServiceMock_SetSessionGroupProvider_Call{Call: _e.mock.On("SetSessionGroupProvider", svc)}
+}
+
+func (_c *ConfigurableOUServiceMock_SetSessionGroupProvider_Call) Run(run func(svc sessiongroup.SessionGroupServiceInterface)) *ConfigurableOUServiceMock_SetSessionGroupProvider_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		var arg0 sessiongroup.SessionGroupServiceInterface
+		if args[0] != nil {
+			arg0 = args[0].(sessiongroup.SessionGroupServiceInterface)
+		}
+		run(
+			arg0,
+		)
+	})
+	return _c
+}
+
+func (_c *ConfigurableOUServiceMock_SetSessionGroupProvider_Call) Return() *ConfigurableOUServiceMock_SetSessionGroupProvider_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *ConfigurableOUServiceMock_SetSessionGroupProvider_Call) RunAndReturn(run func(svc sessiongroup.SessionGroupServiceInterface)) *ConfigurableOUServiceMock_SetSessionGroupProvider_Call {
 	_c.Run(run)
 	return _c
 }

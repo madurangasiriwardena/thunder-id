@@ -399,6 +399,13 @@ export interface OAuth2Config {
    * null means no certificate is configured.
    */
   certificate?: {type: string; value?: string} | null;
+
+  /**
+   * SSO session group ID.
+   * Scopes single sign-on for this application: applications sharing a group SSO with each
+   * other. When empty, the application falls into its organization unit's default group.
+   */
+  sessionGroupId?: string;
 }
 
 /**

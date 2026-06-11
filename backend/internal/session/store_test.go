@@ -56,7 +56,7 @@ func (s *SessionStoreTestSuite) buildRecord() SessionRecord {
 	return SessionRecord{
 		SessionID:         "session-1",
 		SubjectID:         "user-1",
-		SessionGroupID:    DefaultSessionGroupID,
+		SessionGroupID:    "",
 		AuthenticatedAt:   now,
 		AssuranceLevel:    AssuranceLevelPlaceholder,
 		CreatedAt:         now,
@@ -127,7 +127,7 @@ func (s *SessionStoreTestSuite) TestGetSessionByHandle_Found() {
 	row := map[string]interface{}{
 		"session_id":          "session-1",
 		"subject_id":          "user-1",
-		"session_group_id":    DefaultSessionGroupID,
+		"session_group_id":    "",
 		"authenticated_at":    now,
 		"assurance_level":     AssuranceLevelPlaceholder,
 		"created_at":          now,

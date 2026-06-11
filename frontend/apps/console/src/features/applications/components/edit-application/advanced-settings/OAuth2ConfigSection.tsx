@@ -75,6 +75,11 @@ interface OAuth2ConfigSectionProps {
    * Whether inputs should be disabled (e.g. read-only resource).
    */
   disabled?: boolean;
+  /**
+   * SSO session groups available in the application's organization unit. Used to populate the
+   * session group selector. When empty, only the "OU default group" option is shown.
+   */
+  sessionGroups?: {id: string; name: string}[];
 }
 
 function OAuth2Logo() {
@@ -152,6 +157,7 @@ export default function OAuth2ConfigSection({
   oauth2Constraints = undefined,
   onOAuth2ConfigChange = undefined,
   disabled = false,
+  sessionGroups = [],
 }: OAuth2ConfigSectionProps) {
   const {t} = useTranslation();
   const {discovery} = useThunderID();
@@ -319,6 +325,48 @@ export default function OAuth2ConfigSection({
                   'applications:edit.advanced.tokenEndpointAuthMethod.hint',
                   'Defines how the client authenticates at the token endpoint.',
                 )}
+          </Typography>
+        </FormControl>
+
+        {/* SSO Session Group */}
+        <FormControl fullWidth size="small">
+          <FormLabel htmlFor="session_group">
+            {t('applications:edit.advanced.labels.sessionGroup', 'SSO Session Group')}
+          </FormLabel>
+          <Select
+            id="session_group"
+            displayEmpty
+            disabled={!isEditable}
+            value={oauth2Config.sessionGroupId ?? ''}
+            onChange={(e) => onOAuth2ConfigChange?.({sessionGroupId: e.target.value})}
+            renderValue={(selected) => {
+              if (!selected) {
+                return (
+                  <Typography color="text.secondary" variant="body2">
+                    {t('applications:edit.advanced.sessionGroup.defaultOption', 'OU default group')}
+                  </Typography>
+                );
+              }
+              const match = sessionGroups.find((g) => g.id === selected);
+              return match ? match.name : selected;
+            }}
+          >
+            <MenuItem value="">
+              <ListItemText
+                primary={t('applications:edit.advanced.sessionGroup.defaultOption', 'OU default group')}
+              />
+            </MenuItem>
+            {sessionGroups.map((g) => (
+              <MenuItem key={g.id} value={g.id}>
+                <ListItemText primary={g.name} />
+              </MenuItem>
+            ))}
+          </Select>
+          <Typography variant="caption" color="text.secondary" sx={{mt: 0.5}}>
+            {t(
+              'applications:edit.advanced.sessionGroup.hint',
+              'Applications sharing a session group single sign-on with each other. Leave as "OU default group" to use the organization unit’s default SSO group.',
+            )}
           </Typography>
         </FormControl>
 

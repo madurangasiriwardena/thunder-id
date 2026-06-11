@@ -36,6 +36,7 @@ const (
 	jsonKeyClaimsLocales       = "claims_locales"
 	jsonKeyNonce               = "nonce"
 	jsonKeyDPoPJkt             = "dpop_jkt"
+	jsonKeySessionGroupID      = "session_group_id"
 )
 
 // Database column names for authorization request storage.
