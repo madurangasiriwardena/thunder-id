@@ -89,18 +89,6 @@ func (s *stubStore) TouchSession(_ context.Context, _ string, _ time.Time, _ int
 	return s.touchReturn, nil
 }
 
-func (s *stubStore) GetActiveSessionBySubjectAndGroup(
-	_ context.Context, subjectID, groupID string,
-) (*SessionRecord, error) {
-	for _, rec := range s.records {
-		if rec.SubjectID == subjectID && rec.SessionGroupID == groupID && rec.State == SessionStateActive {
-			cp := *rec
-			return &cp, nil
-		}
-	}
-	return nil, errSessionNotFound
-}
-
 func (s *stubStore) UpdateSessionAuth(
 	_ context.Context, sessionID string, factors []AuthFactor, assuranceLevel string, authenticatedAt time.Time,
 ) error {

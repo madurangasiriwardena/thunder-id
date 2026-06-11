@@ -30,10 +30,16 @@ const (
 	SessionModeSessionless SessionMode = "sessionless"
 )
 
-// SessionGroup is the SSO boundary entity within an OU.
-// Each OU has exactly one default group; additional groups may be defined to
-// subdivide SSO within the OU. Sessions key on (subject_id, session_group_id);
-// two apps in different groups never share a session even within the same OU.
+// DeploymentDefaultGroupID is the sentinel ID for the implicit deployment-level default session group.
+// It is not a UUIDv7 so it can never collide with a real group ID.
+// Apps that have no explicit session group assigned are bucketed into this group.
+const DeploymentDefaultGroupID = "deployment-default"
+
+// SessionGroup is the SSO boundary entity.
+// Apps assigned to the same group share a session; apps in different groups do not,
+// even within the same OU. Cross-OU SSO is possible by assigning apps in different
+// OUs to the same group, or by leaving them both unassigned (both resolve to the
+// deployment-level default).
 type SessionGroup struct {
 	ID        string      `json:"id"`
 	OUID      string      `json:"ouId"`

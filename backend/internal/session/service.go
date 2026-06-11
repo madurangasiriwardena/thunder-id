@@ -59,7 +59,7 @@ type CreateSessionInput struct {
 	// session group when SessionGroupID is empty.
 	OUID string
 	// SessionGroupID is the resolved session group for this flow. When non-empty, the session
-	// service uses it directly. When empty, EnsureDefaultForOU(OUID) is called.
+	// service uses it directly. When empty, ResolveGroupForClient resolves the deployment default.
 	SessionGroupID  string
 	AuthenticatedAt time.Time
 	// AssuranceLevel is the ACR value from the completed flow. When empty,

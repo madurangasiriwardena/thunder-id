@@ -44,30 +44,29 @@ export interface SessionGroupListResponse {
 }
 
 /**
- * Custom React hook to fetch the SSO session groups defined within an organization unit.
+ * Custom React hook to fetch all SSO session groups across the deployment.
  *
  * Used by the application advanced settings to let an admin assign the application to a
- * session group (the SSO boundary). The query is disabled until `ouId` is provided.
+ * session group (the SSO boundary). Groups are deployment-wide; apps in different OUs
+ * can share the same group for cross-OU SSO.
  *
- * @param ouId - The organization unit whose session groups should be listed
  * @returns TanStack Query result containing the session group list
  *
  * @public
  */
-export default function useGetSessionGroups(ouId?: string): UseQueryResult<SessionGroupListResponse> {
+export default function useGetSessionGroups(): UseQueryResult<SessionGroupListResponse> {
   const {http} = useThunderID();
   const {getServerUrl} = useConfig();
 
   return useQuery<SessionGroupListResponse>({
-    queryKey: ['session-groups', ouId],
-    enabled: Boolean(ouId),
+    queryKey: ['session-groups'],
     queryFn: async (): Promise<SessionGroupListResponse> => {
       const serverUrl: string = getServerUrl();
 
       const response: {
         data: SessionGroupListResponse;
       } = await http.request({
-        url: `${serverUrl}/organization-units/${ouId}/session-groups`,
+        url: `${serverUrl}/session-groups`,
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',

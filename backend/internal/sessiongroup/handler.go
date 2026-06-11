@@ -38,6 +38,21 @@ func newSessionGroupHandler(service SessionGroupServiceInterface) *sessionGroupH
 	return &sessionGroupHandler{service: service}
 }
 
+// HandleListAllRequest handles GET /session-groups (deployment-wide listing)
+func (h *sessionGroupHandler) HandleListAllRequest(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, handlerLoggerComponentName))
+
+	resp, svcErr := h.service.ListAllSessionGroups(ctx)
+	if svcErr != nil {
+		h.handleError(ctx, w, svcErr)
+		return
+	}
+
+	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, resp)
+	logger.DebugWithContext(ctx, "Listed all session groups", log.Int("totalResults", resp.TotalResults))
+}
+
 // HandleListRequest handles GET /organization-units/{ouId}/session-groups
 func (h *sessionGroupHandler) HandleListRequest(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

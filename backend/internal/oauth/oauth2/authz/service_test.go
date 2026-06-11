@@ -444,6 +444,11 @@ func (s *stubSessionGroupSvcForSSO) ListSessionGroupsForOU(
 ) (*sessiongroup.SessionGroupListResponse, *serviceerror.ServiceError) {
 	return nil, nil
 }
+func (s *stubSessionGroupSvcForSSO) ListAllSessionGroups(
+	_ context.Context,
+) (*sessiongroup.SessionGroupListResponse, *serviceerror.ServiceError) {
+	return nil, nil
+}
 func (s *stubSessionGroupSvcForSSO) UpdateSessionGroup(
 	_ context.Context, _ string, _ sessiongroup.UpdateSessionGroupRequest,
 ) (*sessiongroup.SessionGroup, *serviceerror.ServiceError) {
@@ -451,9 +456,6 @@ func (s *stubSessionGroupSvcForSSO) UpdateSessionGroup(
 }
 func (s *stubSessionGroupSvcForSSO) DeleteSessionGroup(_ context.Context, _ string) *serviceerror.ServiceError {
 	return nil
-}
-func (s *stubSessionGroupSvcForSSO) EnsureDefaultForOU(_ context.Context, _ string) (*sessiongroup.SessionGroup, error) {
-	return &sessiongroup.SessionGroup{ID: testGroupID, Mode: sessiongroup.SessionModeManaged}, nil
 }
 func (s *stubSessionGroupSvcForSSO) ResolveGroupForClient(
 	_ context.Context, _, _ string,

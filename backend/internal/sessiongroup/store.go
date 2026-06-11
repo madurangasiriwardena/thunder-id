@@ -33,11 +33,10 @@ import (
 type sessionGroupStoreInterface interface {
 	Create(ctx context.Context, g SessionGroup) error
 	GetByID(ctx context.Context, id string) (*SessionGroup, error)
-	GetDefaultForOU(ctx context.Context, ouID string) (*SessionGroup, error)
 	ListByOU(ctx context.Context, ouID string) ([]SessionGroup, error)
+	ListAll(ctx context.Context) ([]SessionGroup, error)
 	Update(ctx context.Context, g SessionGroup) error
 	Delete(ctx context.Context, id string) error
-	DefaultExistsForOU(ctx context.Context, ouID string) (bool, error)
 }
 
 var getDBProvider = provider.GetDBProvider
@@ -80,21 +79,6 @@ func (s *sessionGroupStore) GetByID(ctx context.Context, id string) (*SessionGro
 	rows, err := db.QueryContext(ctx, queryGetSessionGroupByID, id, s.deploymentID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query session group: %w", err)
-	}
-	if len(rows) == 0 {
-		return nil, ErrSessionGroupNotFound
-	}
-	return buildSessionGroupFromRow(rows[0])
-}
-
-func (s *sessionGroupStore) GetDefaultForOU(ctx context.Context, ouID string) (*SessionGroup, error) {
-	db, err := s.dbProvider.GetUserDBClient()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get db client: %w", err)
-	}
-	rows, err := db.QueryContext(ctx, queryGetDefaultSessionGroupForOU, ouID, s.deploymentID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query default session group: %w", err)
 	}
 	if len(rows) == 0 {
 		return nil, ErrSessionGroupNotFound
@@ -147,22 +131,24 @@ func (s *sessionGroupStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *sessionGroupStore) DefaultExistsForOU(ctx context.Context, ouID string) (bool, error) {
+func (s *sessionGroupStore) ListAll(ctx context.Context) ([]SessionGroup, error) {
 	db, err := s.dbProvider.GetUserDBClient()
 	if err != nil {
-		return false, fmt.Errorf("failed to get db client: %w", err)
+		return nil, fmt.Errorf("failed to get db client: %w", err)
 	}
-	rows, err := db.QueryContext(ctx, queryCheckDefaultExistsForOU, ouID, s.deploymentID)
+	rows, err := db.QueryContext(ctx, queryListAllSessionGroups, s.deploymentID)
 	if err != nil {
-		return false, fmt.Errorf("failed to check default group: %w", err)
+		return nil, fmt.Errorf("failed to list all session groups: %w", err)
 	}
-	if len(rows) == 0 {
-		return false, nil
+	groups := make([]SessionGroup, 0, len(rows))
+	for _, row := range rows {
+		g, err := buildSessionGroupFromRow(row)
+		if err != nil {
+			return nil, err
+		}
+		groups = append(groups, *g)
 	}
-	if count, ok := rows[0]["count"].(int64); ok {
-		return count > 0, nil
-	}
-	return false, nil
+	return groups, nil
 }
 
 func buildSessionGroupFromRow(row map[string]interface{}) (*SessionGroup, error) {

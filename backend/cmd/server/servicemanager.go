@@ -202,7 +202,6 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	if err != nil {
 		logger.FatalWithContext(ctx, "Failed to initialize SessionGroupService", log.Error(err))
 	}
-	ouService.SetSessionGroupProvider(sessionGroupSvc)
 
 	resourceService, resourceExporter, err := resource.Initialize(mux, ouService, consentService)
 	if err != nil {

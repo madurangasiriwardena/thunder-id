@@ -34,14 +34,6 @@ var queryGetSessionGroupByID = dbmodel.DBQuery{
 		WHERE SESSION_GROUP_ID = $1 AND DEPLOYMENT_ID = $2`,
 }
 
-var queryGetDefaultSessionGroupForOU = dbmodel.DBQuery{
-	ID: "SGQ-003",
-	Query: `SELECT SESSION_GROUP_ID, OU_ID, NAME, SESSION_MODE, IS_DEFAULT, CREATED_AT, UPDATED_AT
-		FROM "SESSION_GROUP"
-		WHERE OU_ID = $1 AND IS_DEFAULT = TRUE AND DEPLOYMENT_ID = $2
-		LIMIT 1`,
-}
-
 var queryListSessionGroupsByOU = dbmodel.DBQuery{
 	ID: "SGQ-004",
 	Query: `SELECT SESSION_GROUP_ID, OU_ID, NAME, SESSION_MODE, IS_DEFAULT, CREATED_AT, UPDATED_AT
@@ -63,8 +55,10 @@ var queryUpdateSessionGroupByID = dbmodel.DBQuery{
 		WHERE SESSION_GROUP_ID = $1 AND DEPLOYMENT_ID = $5`,
 }
 
-var queryCheckDefaultExistsForOU = dbmodel.DBQuery{
-	ID: "SGQ-007",
-	Query: `SELECT COUNT(*) AS count FROM "SESSION_GROUP"
-		WHERE OU_ID = $1 AND IS_DEFAULT = TRUE AND DEPLOYMENT_ID = $2`,
+var queryListAllSessionGroups = dbmodel.DBQuery{
+	ID: "SGQ-008",
+	Query: `SELECT SESSION_GROUP_ID, OU_ID, NAME, SESSION_MODE, IS_DEFAULT, CREATED_AT, UPDATED_AT
+		FROM "SESSION_GROUP"
+		WHERE DEPLOYMENT_ID = $1
+		ORDER BY CREATED_AT ASC`,
 }

@@ -40,6 +40,12 @@ func Initialize(mux *http.ServeMux) (SessionGroupServiceInterface, error) {
 }
 
 func registerRoutes(mux *http.ServeMux, h *sessionGroupHandler) {
+	deploymentCORS := middleware.CORSOptions{
+		AllowedMethods:   []string{"GET"},
+		AllowedHeaders:   middleware.DefaultAllowedHeaders,
+		AllowCredentials: true,
+		MaxAge:           600,
+	}
 	collectionCORS := middleware.CORSOptions{
 		AllowedMethods:   []string{"GET", "POST"},
 		AllowedHeaders:   middleware.DefaultAllowedHeaders,
@@ -52,6 +58,15 @@ func registerRoutes(mux *http.ServeMux, h *sessionGroupHandler) {
 		AllowCredentials: true,
 		MaxAge:           600,
 	}
+
+	// Deployment-wide listing
+	mux.HandleFunc(middleware.WithCORS(
+		"GET /session-groups",
+		h.HandleListAllRequest, deploymentCORS))
+	mux.HandleFunc(middleware.WithCORS(
+		"OPTIONS /session-groups",
+		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) },
+		deploymentCORS))
 
 	// Nested under OU: list + create
 	mux.HandleFunc(middleware.WithCORS(

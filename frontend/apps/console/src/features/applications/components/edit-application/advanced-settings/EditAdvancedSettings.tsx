@@ -74,8 +74,7 @@ export default function EditAdvancedSettings({
   oauth2Constraints = undefined,
   onFieldChange,
 }: EditAdvancedSettingsProps) {
-  const ouId = editedApp.ouId ?? application.ouId;
-  const {data: sessionGroupsData} = useGetSessionGroups(ouId);
+  const {data: sessionGroupsData} = useGetSessionGroups();
   const sessionGroups = (sessionGroupsData?.groups ?? []).map((g) => ({id: g.id, name: g.name}));
 
   const handleOAuth2ConfigChange = (updates: Partial<OAuth2Config>) => {

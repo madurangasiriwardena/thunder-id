@@ -38,16 +38,16 @@ type SessionGroupServiceInterface interface {
 	GetSessionGroup(ctx context.Context, id string) (*SessionGroup, *serviceerror.ServiceError)
 	// ListSessionGroupsForOU returns all session groups for the given OU.
 	ListSessionGroupsForOU(ctx context.Context, ouID string) (*SessionGroupListResponse, *serviceerror.ServiceError)
+	// ListAllSessionGroups returns all session groups across the deployment.
+	ListAllSessionGroups(ctx context.Context) (*SessionGroupListResponse, *serviceerror.ServiceError)
 	// UpdateSessionGroup updates name and mode for the given session group.
 	UpdateSessionGroup(ctx context.Context, id string, req UpdateSessionGroupRequest) (*SessionGroup, *serviceerror.ServiceError)
-	// DeleteSessionGroup deletes a non-default session group.
+	// DeleteSessionGroup deletes a session group.
 	DeleteSessionGroup(ctx context.Context, id string) *serviceerror.ServiceError
-	// EnsureDefaultForOU returns the existing default group for the OU, or creates one.
-	// This is idempotent; concurrent calls are safe because the DB unique index prevents duplicates.
-	EnsureDefaultForOU(ctx context.Context, ouID string) (*SessionGroup, error)
 	// ResolveGroupForClient resolves the effective session group for a client.
-	// When sessionGroupID is non-empty, it is validated (must belong to ouID) and returned.
-	// When sessionGroupID is empty, the OU's default group is returned (creating it on demand).
+	// When sessionGroupID is non-empty, it is looked up by ID and returned as-is (no OU check).
+	// When sessionGroupID is empty or the ID is not found, a synthetic deployment-level default
+	// group (DeploymentDefaultGroupID) is returned — no DB write is performed.
 	ResolveGroupForClient(ctx context.Context, sessionGroupID, ouID string) (*SessionGroup, error)
 }
 
@@ -75,16 +75,6 @@ func (s *sessionGroupService) CreateSessionGroup(
 	if !isValidMode(req.Mode) {
 		return nil, &ErrorInvalidSessionMode
 	}
-	if req.IsDefault {
-		exists, err := s.store.DefaultExistsForOU(ctx, req.OUID)
-		if err != nil {
-			s.log.ErrorWithContext(ctx, "Failed to check default group", log.Error(err))
-			return nil, &serviceerror.InternalServerError
-		}
-		if exists {
-			return nil, &ErrorDuplicateDefault
-		}
-	}
 
 	id, err := sysutils.GenerateUUIDv7()
 	if err != nil {
@@ -97,7 +87,7 @@ func (s *sessionGroupService) CreateSessionGroup(
 		OUID:      req.OUID,
 		Name:      req.Name,
 		Mode:      req.Mode,
-		IsDefault: req.IsDefault,
+		IsDefault: false,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -134,6 +124,17 @@ func (s *sessionGroupService) ListSessionGroupsForOU(
 	groups, err := s.store.ListByOU(ctx, ouID)
 	if err != nil {
 		s.log.ErrorWithContext(ctx, "Failed to list session groups", log.Error(err))
+		return nil, &serviceerror.InternalServerError
+	}
+	return &SessionGroupListResponse{TotalResults: len(groups), Groups: groups}, nil
+}
+
+func (s *sessionGroupService) ListAllSessionGroups(
+	ctx context.Context,
+) (*SessionGroupListResponse, *serviceerror.ServiceError) {
+	groups, err := s.store.ListAll(ctx)
+	if err != nil {
+		s.log.ErrorWithContext(ctx, "Failed to list all session groups", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 	return &SessionGroupListResponse{TotalResults: len(groups), Groups: groups}, nil
@@ -191,50 +192,6 @@ func (s *sessionGroupService) DeleteSessionGroup(ctx context.Context, id string)
 	return nil
 }
 
-func (s *sessionGroupService) EnsureDefaultForOU(ctx context.Context, ouID string) (*SessionGroup, error) {
-	if ouID == "" {
-		return nil, fmt.Errorf("ouID is required")
-	}
-	existing, err := s.store.GetDefaultForOU(ctx, ouID)
-	if err == nil {
-		return existing, nil
-	}
-	if !errors.Is(err, ErrSessionGroupNotFound) {
-		return nil, fmt.Errorf("failed to look up default session group: %w", err)
-	}
-
-	// Create a new default group.
-	defaultMode := SessionMode(config.GetServerRuntime().Config.Session.DefaultMode)
-	if !isValidMode(defaultMode) {
-		defaultMode = SessionModeManaged
-	}
-
-	id, err := sysutils.GenerateUUIDv7()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate session group ID: %w", err)
-	}
-	now := time.Now().UTC()
-	g := SessionGroup{
-		ID:        id,
-		OUID:      ouID,
-		Name:      "Default",
-		Mode:      defaultMode,
-		IsDefault: true,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-	if createErr := s.store.Create(ctx, g); createErr != nil {
-		// Race: another process may have created the default. Try to read it.
-		if existing2, readErr := s.store.GetDefaultForOU(ctx, ouID); readErr == nil {
-			return existing2, nil
-		}
-		return nil, fmt.Errorf("failed to create default session group: %w", createErr)
-	}
-	s.log.DebugWithContext(ctx, "Created default session group",
-		log.String("ouID", ouID), log.String("groupID", g.ID))
-	return &g, nil
-}
-
 func (s *sessionGroupService) ResolveGroupForClient(
 	ctx context.Context, sessionGroupID, ouID string,
 ) (*SessionGroup, error) {
@@ -242,28 +199,29 @@ func (s *sessionGroupService) ResolveGroupForClient(
 		g, err := s.store.GetByID(ctx, sessionGroupID)
 		if err != nil {
 			if errors.Is(err, ErrSessionGroupNotFound) {
-				// Explicit group not found → fall through to default.
-				s.log.WarnWithContext(ctx, "Explicit session group not found; falling back to OU default",
+				s.log.WarnWithContext(ctx, "Explicit session group not found; falling back to deployment default",
 					log.String("sessionGroupID", sessionGroupID))
 			} else {
 				return nil, fmt.Errorf("failed to look up session group: %w", err)
 			}
 		} else {
-			if ouID != "" && g.OUID != ouID {
-				// Cross-tenant attempt: group belongs to a different OU.
-				s.log.WarnWithContext(ctx, "Session group OU mismatch; falling back to OU default",
-					log.String("sessionGroupID", sessionGroupID),
-					log.String("groupOUID", g.OUID),
-					log.String("clientOUID", ouID))
-			} else {
-				return g, nil
-			}
+			return g, nil
 		}
 	}
-	if ouID == "" {
-		return nil, fmt.Errorf("cannot resolve session group: no sessionGroupID and no ouID")
+	return s.syntheticDefault(), nil
+}
+
+func (s *sessionGroupService) syntheticDefault() *SessionGroup {
+	mode := SessionMode(config.GetServerRuntime().Config.Session.DefaultMode)
+	if !isValidMode(mode) {
+		mode = SessionModeManaged
 	}
-	return s.EnsureDefaultForOU(ctx, ouID)
+	return &SessionGroup{
+		ID:        DeploymentDefaultGroupID,
+		Name:      "Default",
+		Mode:      mode,
+		IsDefault: true,
+	}
 }
 
 func isValidMode(m SessionMode) bool {
