@@ -166,7 +166,14 @@ setup("Admin login test", async ({ page, context, signinPage }) => {
   });
   console.log("Page-accessible cookies:", pageCookies.length);
 
-  const capturedCookies = allCookies.length > 0 ? allCookies : urlCookies;
+  // Exclude the IdP browser SSO session cookie (__Host-tid_session*). It is captured only as a
+  // side effect of grabbing all cookies; the admin's console auth is the token in sessionStorage,
+  // not this cookie. Carrying it into every test's storageState makes same-group apps (e.g. the
+  // sample app, which shares the deployment-default group) silently SSO / step-up off the admin
+  // session — which breaks fresh-login specs such as the sample-app MFA flow.
+  const capturedCookies = (allCookies.length > 0 ? allCookies : urlCookies).filter(
+    (cookie) => !cookie.name.startsWith("__Host-tid_session"),
+  );
 
   console.log("🍪 Final cookie summary:");
   console.log(`  - Context cookies: ${allCookies.length}`);
