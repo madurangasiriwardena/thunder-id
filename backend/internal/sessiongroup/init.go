@@ -40,12 +40,6 @@ func Initialize(mux *http.ServeMux) (SessionGroupServiceInterface, error) {
 }
 
 func registerRoutes(mux *http.ServeMux, h *sessionGroupHandler) {
-	deploymentCORS := middleware.CORSOptions{
-		AllowedMethods:   []string{"GET"},
-		AllowedHeaders:   middleware.DefaultAllowedHeaders,
-		AllowCredentials: true,
-		MaxAge:           600,
-	}
 	collectionCORS := middleware.CORSOptions{
 		AllowedMethods:   []string{"GET", "POST"},
 		AllowedHeaders:   middleware.DefaultAllowedHeaders,
@@ -59,24 +53,15 @@ func registerRoutes(mux *http.ServeMux, h *sessionGroupHandler) {
 		MaxAge:           600,
 	}
 
-	// Deployment-wide listing
+	// Collection: deployment-wide list + create (ouId supplied in request body for POST)
 	mux.HandleFunc(middleware.WithCORS(
 		"GET /session-groups",
-		h.HandleListAllRequest, deploymentCORS))
+		h.HandleListAllRequest, collectionCORS))
 	mux.HandleFunc(middleware.WithCORS(
-		"OPTIONS /session-groups",
-		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) },
-		deploymentCORS))
-
-	// Nested under OU: list + create
-	mux.HandleFunc(middleware.WithCORS(
-		"GET /organization-units/{ouId}/session-groups",
-		h.HandleListRequest, collectionCORS))
-	mux.HandleFunc(middleware.WithCORS(
-		"POST /organization-units/{ouId}/session-groups",
+		"POST /session-groups",
 		h.HandlePostRequest, collectionCORS))
 	mux.HandleFunc(middleware.WithCORS(
-		"OPTIONS /organization-units/{ouId}/session-groups",
+		"OPTIONS /session-groups",
 		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) },
 		collectionCORS))
 

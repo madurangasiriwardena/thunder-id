@@ -36,8 +36,9 @@ import (
 func Initialize(_ *http.ServeMux, sgSvc sessiongroup.SessionGroupServiceInterface) SessionServiceInterface {
 	logger := log.GetLogger().With(log.String(log.LoggerKeyComponentName, "SessionInit"))
 
+	ctx := context.Background()
 	if dbprovider.GetDBProvider() == nil {
-		logger.Warn("No runtime DB provider available; session service disabled")
+		logger.Warn(ctx, "No runtime DB provider available; session service disabled")
 		return nil
 	}
 
@@ -45,7 +46,7 @@ func Initialize(_ *http.ServeMux, sgSvc sessiongroup.SessionGroupServiceInterfac
 	csStore := newClientSessionStore(dbprovider.GetDBProvider())
 	svc := newSessionService(store, csStore, sgSvc)
 
-	logger.Debug("Session service initialized (DB-backed store)")
+	logger.Debug(ctx, "Session service initialized (DB-backed store)")
 	return svc
 }
 

@@ -340,7 +340,7 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 	if as.sessionGroupSvc != nil {
 		g, err := as.sessionGroupSvc.ResolveGroupForClient(ctx, app.SessionGroupID, app.OUID)
 		if err != nil {
-			as.logger.ErrorWithContext(ctx, "Failed to resolve session group", log.Error(err))
+			as.logger.Error(ctx, "Failed to resolve session group", log.Error(err))
 		} else {
 			groupID = g.ID
 			// Resolve the per-group session cookie when session management is available.
@@ -506,7 +506,7 @@ func (as *authorizeService) replayWithSession(
 
 	flowStep, flowErr := as.flowExecService.InitiateAndExecute(ctx, flowInitCtx)
 	if flowErr != nil {
-		as.logger.ErrorWithContext(ctx, "Failed to replay flow for SSO",
+		as.logger.Error(ctx, "Failed to replay flow for SSO",
 			log.String("error_code", flowErr.Code))
 		return nil, &AuthorizationError{
 			Code:              oauth2const.ErrorServerError,
@@ -539,7 +539,7 @@ func (as *authorizeService) replayWithSession(
 	// the passkey challenge from being consumed server-side before the browser sees it.
 	freshExecID, flowErr := as.flowExecService.InitiateFlow(ctx, flowInitCtx)
 	if flowErr != nil {
-		as.logger.ErrorWithContext(ctx, "Failed to initialize step-up flow",
+		as.logger.Error(ctx, "Failed to initialize step-up flow",
 			log.String("error_code", flowErr.Code))
 		return nil, &AuthorizationError{
 			Code:              oauth2const.ErrorServerError,
@@ -553,7 +553,7 @@ func (as *authorizeService) replayWithSession(
 	authRequestCtx := authRequestContext{OAuthParameters: *oauthParams, SessionGroupID: groupID}
 	identifier, storeErr := as.authReqStore.AddRequest(ctx, authRequestCtx)
 	if storeErr != nil {
-		as.logger.ErrorWithContext(ctx, "Failed to store authorization request context for step-up",
+		as.logger.Error(ctx, "Failed to store authorization request context for step-up",
 			log.Error(storeErr))
 		return nil, &AuthorizationError{
 			Code:              oauth2const.ErrorServerError,

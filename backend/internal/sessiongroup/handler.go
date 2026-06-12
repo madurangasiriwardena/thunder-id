@@ -50,7 +50,7 @@ func (h *sessionGroupHandler) HandleListAllRequest(w http.ResponseWriter, r *htt
 	}
 
 	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, resp)
-	logger.DebugWithContext(ctx, "Listed all session groups", log.Int("totalResults", resp.TotalResults))
+	logger.Debug(ctx, "Listed all session groups", log.Int("totalResults", resp.TotalResults))
 }
 
 // HandleListRequest handles GET /organization-units/{ouId}/session-groups
@@ -71,7 +71,7 @@ func (h *sessionGroupHandler) HandleListRequest(w http.ResponseWriter, r *http.R
 	}
 
 	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, resp)
-	logger.DebugWithContext(ctx, "Listed session groups", log.String("ouId", ouID),
+	logger.Debug(ctx, "Listed session groups", log.String("ouId", ouID),
 		log.Int("totalResults", resp.TotalResults))
 }
 
@@ -98,7 +98,7 @@ func (h *sessionGroupHandler) HandlePostRequest(w http.ResponseWriter, r *http.R
 	}
 
 	sysutils.WriteSuccessResponse(ctx, w, http.StatusCreated, g)
-	logger.DebugWithContext(ctx, "Created session group", log.String("id", g.ID))
+	logger.Debug(ctx, "Created session group", log.String("id", g.ID))
 }
 
 // HandleGetRequest handles GET /session-groups/{id}
@@ -119,7 +119,7 @@ func (h *sessionGroupHandler) HandleGetRequest(w http.ResponseWriter, r *http.Re
 	}
 
 	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, g)
-	logger.DebugWithContext(ctx, "Retrieved session group", log.String("id", id))
+	logger.Debug(ctx, "Retrieved session group", log.String("id", id))
 }
 
 // HandlePutRequest handles PUT /session-groups/{id}
@@ -146,7 +146,7 @@ func (h *sessionGroupHandler) HandlePutRequest(w http.ResponseWriter, r *http.Re
 	}
 
 	sysutils.WriteSuccessResponse(ctx, w, http.StatusOK, g)
-	logger.DebugWithContext(ctx, "Updated session group", log.String("id", id))
+	logger.Debug(ctx, "Updated session group", log.String("id", id))
 }
 
 // HandleDeleteRequest handles DELETE /session-groups/{id}
@@ -167,7 +167,7 @@ func (h *sessionGroupHandler) HandleDeleteRequest(w http.ResponseWriter, r *http
 	}
 
 	sysutils.WriteSuccessResponse(ctx, w, http.StatusNoContent, nil)
-	logger.DebugWithContext(ctx, "Deleted session group", log.String("id", id))
+	logger.Debug(ctx, "Deleted session group", log.String("id", id))
 }
 
 func (h *sessionGroupHandler) handleError(

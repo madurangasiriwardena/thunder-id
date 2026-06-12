@@ -58,6 +58,7 @@ type Application struct {
 	Certificate               map[string]interface{}   `json:"certificate,omitempty"`
 	InboundAuthConfig         []map[string]interface{} `json:"inboundAuthConfig,omitempty"`
 	AssertionConfig           map[string]interface{}   `json:"assertion,omitempty"`
+	SessionGroupID            string                   `json:"sessionGroupId,omitempty"`
 }
 
 // OrganizationUnit represents an organization unit in the system

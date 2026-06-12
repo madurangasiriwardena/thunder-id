@@ -184,7 +184,7 @@ func (s *flowExecService) Execute(ctx context.Context,
 			}
 			sessionRec, sessionErr := s.sessionService.CreateSessionFromFlow(ctx, sessionInput)
 			if sessionErr != nil {
-				logger.ErrorWithContext(ctx, "Failed to create session after flow completion",
+				logger.Error(ctx, "Failed to create session after flow completion",
 					log.String(log.LoggerKeyExecutionID, engineCtx.ExecutionID), log.Error(sessionErr))
 				return nil, &serviceerror.InternalServerError
 			}

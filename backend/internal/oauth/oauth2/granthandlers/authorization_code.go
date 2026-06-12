@@ -241,7 +241,7 @@ func (h *authorizationCodeGrantHandler) HandleGrant(ctx context.Context, tokenRe
 				idTokenCtx.AuthTime = sessionRec.AuthenticatedAt.Unix()
 				idTokenCtx.CompletedACR = sessionRec.AssuranceLevel
 			} else {
-				logger.DebugWithContext(ctx, "Session lookup failed for ID token; using auth code values")
+				logger.Debug(ctx, "Session lookup failed for ID token; using auth code values")
 			}
 		}
 

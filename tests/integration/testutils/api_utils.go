@@ -363,15 +363,27 @@ func CreateApplication(app Application) (string, error) {
 
 	inboundAuthConfig := app.InboundAuthConfig
 	if len(inboundAuthConfig) == 0 {
+		oauthConfig := map[string]interface{}{
+			"clientId":     app.ClientID,
+			"clientSecret": app.ClientSecret,
+			"redirectUris": redirectURIs,
+		}
+		if app.SessionGroupID != "" {
+			oauthConfig["sessionGroupId"] = app.SessionGroupID
+		}
 		inboundAuthConfig = []map[string]interface{}{
 			{
-				"type": "oauth2",
-				"config": map[string]interface{}{
-					"clientId":     app.ClientID,
-					"clientSecret": app.ClientSecret,
-					"redirectUris": redirectURIs,
-				},
+				"type":   "oauth2",
+				"config": oauthConfig,
 			},
+		}
+	} else if app.SessionGroupID != "" {
+		for _, entry := range inboundAuthConfig {
+			if t, ok := entry["type"].(string); ok && t == "oauth2" {
+				if cfg, ok := entry["config"].(map[string]interface{}); ok {
+					cfg["sessionGroupId"] = app.SessionGroupID
+				}
+			}
 		}
 	}
 
@@ -1547,4 +1559,68 @@ func GetAgent(agentID string) (*Agent, error) {
 		return nil, fmt.Errorf("failed to decode get agent response: %w", err)
 	}
 	return &a, nil
+}
+
+// CreateSessionGroup creates a session group for the given OU and returns the group ID.
+func CreateSessionGroup(ouID, name, mode string) (string, error) {
+	body, err := json.Marshal(map[string]interface{}{
+		"ouId":        ouID,
+		"name":        name,
+		"sessionMode": mode,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal session group: %w", err)
+	}
+
+	req, err := http.NewRequest("POST",
+		TestServerURL+"/session-groups",
+		bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("failed to create session group request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := GetHTTPClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send session group request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("expected status 201, got %d. Response: %s", resp.StatusCode, string(respBody))
+	}
+
+	var created map[string]interface{}
+	if err := json.Unmarshal(respBody, &created); err != nil {
+		return "", fmt.Errorf("failed to parse session group response: %w", err)
+	}
+	id, ok := created["id"].(string)
+	if !ok {
+		return "", fmt.Errorf("session group response missing id. Response: %s", string(respBody))
+	}
+	return id, nil
+}
+
+// DeleteSessionGroup deletes a session group by ID.
+func DeleteSessionGroup(id string) error {
+	req, err := http.NewRequest("DELETE",
+		fmt.Sprintf("%s/session-groups/%s", TestServerURL, id), nil)
+	if err != nil {
+		return fmt.Errorf("failed to create delete session group request: %w", err)
+	}
+
+	client := GetHTTPClient()
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to delete session group: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("expected status 204, got %d. Response: %s", resp.StatusCode, string(respBody))
+	}
+	return nil
 }

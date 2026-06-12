@@ -801,7 +801,7 @@ func (fe *flowEngine) skipSatisfiedTask(
 	}
 	ctx.ExecutionHistory[node.GetID()] = &record
 
-	logger.DebugWithContext(ctx.Context, "Skipping satisfied auth task",
+	logger.Debug(ctx.Context, "Skipping satisfied auth task",
 		log.String("nodeID", node.GetID()),
 		log.String("authenticator", authnName))
 
@@ -812,7 +812,7 @@ func (fe *flowEngine) skipSatisfiedTask(
 	}
 	nextNode, ok := ctx.Graph.GetNode(onSuccess)
 	if !ok {
-		logger.ErrorWithContext(ctx.Context, "onSuccess node not found for skipped auth task",
+		logger.Error(ctx.Context, "onSuccess node not found for skipped auth task",
 			log.String("nodeID", node.GetID()), log.String("onSuccess", onSuccess))
 		return false, nil, &serviceerror.InternalServerError
 	}

@@ -78,7 +78,7 @@ func (s *sessionGroupService) CreateSessionGroup(
 
 	id, err := sysutils.GenerateUUIDv7()
 	if err != nil {
-		s.log.ErrorWithContext(ctx, "Failed to generate session group ID", log.Error(err))
+		s.log.Error(ctx, "Failed to generate session group ID", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 	now := time.Now().UTC()
@@ -92,7 +92,7 @@ func (s *sessionGroupService) CreateSessionGroup(
 		UpdatedAt: now,
 	}
 	if err := s.store.Create(ctx, g); err != nil {
-		s.log.ErrorWithContext(ctx, "Failed to persist session group", log.Error(err))
+		s.log.Error(ctx, "Failed to persist session group", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 	return &g, nil
@@ -109,7 +109,7 @@ func (s *sessionGroupService) GetSessionGroup(
 		if errors.Is(err, ErrSessionGroupNotFound) {
 			return nil, &ErrorSessionGroupNotFound
 		}
-		s.log.ErrorWithContext(ctx, "Failed to get session group", log.Error(err))
+		s.log.Error(ctx, "Failed to get session group", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 	return g, nil
@@ -123,7 +123,7 @@ func (s *sessionGroupService) ListSessionGroupsForOU(
 	}
 	groups, err := s.store.ListByOU(ctx, ouID)
 	if err != nil {
-		s.log.ErrorWithContext(ctx, "Failed to list session groups", log.Error(err))
+		s.log.Error(ctx, "Failed to list session groups", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 	return &SessionGroupListResponse{TotalResults: len(groups), Groups: groups}, nil
@@ -134,7 +134,7 @@ func (s *sessionGroupService) ListAllSessionGroups(
 ) (*SessionGroupListResponse, *serviceerror.ServiceError) {
 	groups, err := s.store.ListAll(ctx)
 	if err != nil {
-		s.log.ErrorWithContext(ctx, "Failed to list all session groups", log.Error(err))
+		s.log.Error(ctx, "Failed to list all session groups", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 	return &SessionGroupListResponse{TotalResults: len(groups), Groups: groups}, nil
@@ -157,14 +157,14 @@ func (s *sessionGroupService) UpdateSessionGroup(
 		if errors.Is(err, ErrSessionGroupNotFound) {
 			return nil, &ErrorSessionGroupNotFound
 		}
-		s.log.ErrorWithContext(ctx, "Failed to get session group for update", log.Error(err))
+		s.log.Error(ctx, "Failed to get session group for update", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 	g.Name = req.Name
 	g.Mode = req.Mode
 	g.UpdatedAt = time.Now().UTC()
 	if err := s.store.Update(ctx, *g); err != nil {
-		s.log.ErrorWithContext(ctx, "Failed to update session group", log.Error(err))
+		s.log.Error(ctx, "Failed to update session group", log.Error(err))
 		return nil, &serviceerror.InternalServerError
 	}
 	return g, nil
@@ -179,14 +179,14 @@ func (s *sessionGroupService) DeleteSessionGroup(ctx context.Context, id string)
 		if errors.Is(err, ErrSessionGroupNotFound) {
 			return &ErrorSessionGroupNotFound
 		}
-		s.log.ErrorWithContext(ctx, "Failed to get session group for delete", log.Error(err))
+		s.log.Error(ctx, "Failed to get session group for delete", log.Error(err))
 		return &serviceerror.InternalServerError
 	}
 	if g.IsDefault {
 		return &ErrorCannotDeleteDefault
 	}
 	if err := s.store.Delete(ctx, id); err != nil {
-		s.log.ErrorWithContext(ctx, "Failed to delete session group", log.Error(err))
+		s.log.Error(ctx, "Failed to delete session group", log.Error(err))
 		return &serviceerror.InternalServerError
 	}
 	return nil
@@ -199,7 +199,7 @@ func (s *sessionGroupService) ResolveGroupForClient(
 		g, err := s.store.GetByID(ctx, sessionGroupID)
 		if err != nil {
 			if errors.Is(err, ErrSessionGroupNotFound) {
-				s.log.WarnWithContext(ctx, "Explicit session group not found; falling back to deployment default",
+				s.log.Warn(ctx, "Explicit session group not found; falling back to deployment default",
 					log.String("sessionGroupID", sessionGroupID))
 			} else {
 				return nil, fmt.Errorf("failed to look up session group: %w", err)

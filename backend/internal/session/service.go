@@ -99,7 +99,7 @@ func (s *sessionService) CreateSessionFromFlow(
 	if s.sessionGroup != nil {
 		g, err := s.sessionGroup.ResolveGroupForClient(ctx, in.SessionGroupID, in.OUID)
 		if err != nil {
-			logger.ErrorWithContext(ctx, "Failed to resolve session group", log.Error(err))
+			logger.Error(ctx, "Failed to resolve session group", log.Error(err))
 			return nil, fmt.Errorf("failed to resolve session group: %w", err)
 		}
 		if g.Mode != SessionModeManaged {
@@ -125,7 +125,7 @@ func (s *sessionService) CreateSessionFromFlow(
 	if in.IncomingHandle != "" {
 		byHandle, handleErr := s.store.GetSessionByHandle(ctx, in.IncomingHandle)
 		if handleErr != nil && !errors.Is(handleErr, errSessionNotFound) {
-			logger.ErrorWithContext(ctx, "Failed to look up session by handle", log.Error(handleErr))
+			logger.Error(ctx, "Failed to look up session by handle", log.Error(handleErr))
 			return nil, fmt.Errorf("failed to look up session by handle: %w", handleErr)
 		}
 		if byHandle != nil && byHandle.IsLive(time.Now().UTC()) &&
@@ -142,7 +142,7 @@ func (s *sessionService) CreateSessionFromFlow(
 			}
 			augErr := s.store.UpdateSessionAuth(ctx, existing.SessionID, merged, assuranceLevel, in.AuthenticatedAt)
 			if augErr != nil {
-				logger.ErrorWithContext(ctx, "Failed to augment session auth factors", log.Error(augErr))
+				logger.Error(ctx, "Failed to augment session auth factors", log.Error(augErr))
 				return nil, fmt.Errorf("failed to augment session: %w", augErr)
 			}
 			existing.AuthFactors = merged
@@ -154,12 +154,12 @@ func (s *sessionService) CreateSessionFromFlow(
 
 	sessionID, err := sysutils.GenerateUUIDv7()
 	if err != nil {
-		logger.ErrorWithContext(ctx, "Failed to generate session ID", log.Error(err))
+		logger.Error(ctx, "Failed to generate session ID", log.Error(err))
 		return nil, fmt.Errorf("failed to generate session ID: %w", err)
 	}
 	handleID, err := sysutils.GenerateUUIDv7()
 	if err != nil {
-		logger.ErrorWithContext(ctx, "Failed to generate handle ID", log.Error(err))
+		logger.Error(ctx, "Failed to generate handle ID", log.Error(err))
 		return nil, fmt.Errorf("failed to generate handle ID: %w", err)
 	}
 
@@ -193,11 +193,11 @@ func (s *sessionService) CreateSessionFromFlow(
 	}
 
 	if err := s.store.CreateSession(ctx, rec); err != nil {
-		logger.ErrorWithContext(ctx, "Failed to persist session record", log.Error(err))
+		logger.Error(ctx, "Failed to persist session record", log.Error(err))
 		return nil, fmt.Errorf("failed to create session: %w", err)
 	}
 
-	logger.DebugWithContext(ctx, "Session created",
+	logger.Debug(ctx, "Session created",
 		log.String("sessionGroupID", groupID),
 		log.String("subjectID", in.SubjectID))
 	return &rec, nil
@@ -229,7 +229,7 @@ func (s *sessionService) ResolveSession(
 
 	// TODO Phase B: add write-coalescing to avoid a DB write on every request.
 	if _, touchErr := s.store.TouchSession(ctx, rec.SessionID, now, rec.Version); touchErr != nil {
-		logger.ErrorWithContext(ctx, "Failed to touch session", log.Error(touchErr))
+		logger.Error(ctx, "Failed to touch session", log.Error(touchErr))
 		return nil, fmt.Errorf("failed to update session activity: %w", touchErr)
 	}
 
@@ -249,7 +249,7 @@ func (s *sessionService) EnsureClientSession(
 	if existing != nil {
 		now := time.Now().UTC()
 		if touchErr := s.csStore.TouchClientSession(ctx, existing.ClientSessionID, now); touchErr != nil {
-			logger.ErrorWithContext(ctx, "Failed to touch client session", log.Error(touchErr))
+			logger.Error(ctx, "Failed to touch client session", log.Error(touchErr))
 		}
 		existing.LastUsedAt = now
 		return existing, nil
@@ -257,12 +257,12 @@ func (s *sessionService) EnsureClientSession(
 
 	clientSessionID, err := sysutils.GenerateUUIDv7()
 	if err != nil {
-		logger.ErrorWithContext(ctx, "Failed to generate client session ID", log.Error(err))
+		logger.Error(ctx, "Failed to generate client session ID", log.Error(err))
 		return nil, fmt.Errorf("failed to generate client session ID: %w", err)
 	}
 	oidcSID, err := sysutils.GenerateUUIDv7()
 	if err != nil {
-		logger.ErrorWithContext(ctx, "Failed to generate OIDC SID", log.Error(err))
+		logger.Error(ctx, "Failed to generate OIDC SID", log.Error(err))
 		return nil, fmt.Errorf("failed to generate OIDC SID: %w", err)
 	}
 
@@ -280,11 +280,11 @@ func (s *sessionService) EnsureClientSession(
 	}
 
 	if err := s.csStore.CreateClientSession(ctx, cs); err != nil {
-		logger.ErrorWithContext(ctx, "Failed to persist client session", log.Error(err))
+		logger.Error(ctx, "Failed to persist client session", log.Error(err))
 		return nil, fmt.Errorf("failed to create client session: %w", err)
 	}
 
-	logger.DebugWithContext(ctx, "Client session created",
+	logger.Debug(ctx, "Client session created",
 		log.String("sessionID", sessionID),
 		log.String("clientID", clientID))
 	return &cs, nil
