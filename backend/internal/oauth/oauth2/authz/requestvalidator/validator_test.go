@@ -187,13 +187,16 @@ func (suite *AuthzValidationTestSuite) TestValidateParams_PromptLogin_Success() 
 	assert.Empty(suite.T(), errMsg)
 }
 
-func (suite *AuthzValidationTestSuite) TestValidateParams_PromptNone_LoginRequired() {
+func (suite *AuthzValidationTestSuite) TestValidateParams_PromptNone_Valid() {
 	params := suite.validParams()
 	params[constants.RequestParamPrompt] = "none"
 
-	errCode, _ := ValidateAuthorizationRequestParams(params, suite.oauthApp, "")
+	errCode, errMsg := ValidateAuthorizationRequestParams(params, suite.oauthApp, "")
 
-	assert.Equal(suite.T(), constants.ErrorLoginRequired, errCode)
+	// prompt=none passes validation; the silent-SSO decision (code vs login_required vs
+	// interaction_required) is made downstream once the browser session is resolved.
+	assert.Empty(suite.T(), errCode)
+	assert.Empty(suite.T(), errMsg)
 }
 
 func (suite *AuthzValidationTestSuite) TestValidateParams_PromptInvalid() {
@@ -309,9 +312,11 @@ func (suite *AuthzValidationTestSuite) TestValidatePromptParameter_Login() {
 	assert.Empty(suite.T(), errCode)
 }
 
-func (suite *AuthzValidationTestSuite) TestValidatePromptParameter_None_LoginRequired() {
-	errCode, _ := ValidatePromptParameter("none")
-	assert.Equal(suite.T(), constants.ErrorLoginRequired, errCode)
+func (suite *AuthzValidationTestSuite) TestValidatePromptParameter_None_Valid() {
+	errCode, errMsg := ValidatePromptParameter("none")
+	// prompt=none is valid at the parameter level; the session-dependent outcome is decided downstream.
+	assert.Empty(suite.T(), errCode)
+	assert.Empty(suite.T(), errMsg)
 }
 
 func (suite *AuthzValidationTestSuite) TestValidatePromptParameter_Consent() {

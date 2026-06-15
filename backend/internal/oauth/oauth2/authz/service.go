@@ -70,18 +70,18 @@ type AuthorizeServiceInterface interface {
 
 // authorizeService implements the AuthorizeService for managing OAuth2 authorization flows.
 type authorizeService struct {
-	inboundClient    inboundclient.InboundClientServiceInterface
-	resourceService  resource.ResourceServiceInterface
-	authZValidator   AuthorizationValidatorInterface
-	authCodeStore    AuthorizationCodeStoreInterface
-	authReqStore     authorizationRequestStoreInterface
-	parService       par.PARServiceInterface
-	jwtService       jwt.JWTServiceInterface
-	flowExecService  flowexec.FlowExecServiceInterface
-	sessionService   session.SessionServiceInterface
-	sessionGroupSvc  sessiongroup.SessionGroupServiceInterface
-	transactioner    transaction.Transactioner
-	logger           *log.Logger
+	inboundClient   inboundclient.InboundClientServiceInterface
+	resourceService resource.ResourceServiceInterface
+	authZValidator  AuthorizationValidatorInterface
+	authCodeStore   AuthorizationCodeStoreInterface
+	authReqStore    authorizationRequestStoreInterface
+	parService      par.PARServiceInterface
+	jwtService      jwt.JWTServiceInterface
+	flowExecService flowexec.FlowExecServiceInterface
+	sessionService  session.SessionServiceInterface
+	sessionGroupSvc sessiongroup.SessionGroupServiceInterface
+	transactioner   transaction.Transactioner
+	logger          *log.Logger
 }
 
 // newAuthorizeService creates a new instance of authorizeService with injected dependencies.
@@ -519,7 +519,7 @@ func (as *authorizeService) replayWithSession(
 
 	if flowStep.Status == flowcm.FlowStatusComplete {
 		// All factors satisfied → issue code silently.
-		return as.issueSilentCode(ctx, oauthParams, sessionRec)
+		return as.issueSilentCode(ctx, oauthParams, sessionRec, flowStep)
 	}
 
 	// Flow is incomplete: step-up authentication needed.
@@ -587,10 +587,41 @@ func (as *authorizeService) replayWithSession(
 }
 
 // issueSilentCode builds and persists an authorization code from a live session without user interaction.
+// The completed replay flowStep carries the assertion produced by the AuthAssert executor; its claims
+// (attribute cache ID and authorized permissions) are decoded here so silent SSO codes attach the same
+// user attributes and validated permissions as the interactive callback path.
 func (as *authorizeService) issueSilentCode(
 	ctx context.Context, oauthParams *oauth2model.OAuthParameters, sessionRec *session.SessionRecord,
+	flowStep *flowexec.FlowStep,
 ) (*AuthorizationInitResult, *AuthorizationError) {
-	allScopes := append(append([]string{}, oauthParams.StandardScopes...), oauthParams.PermissionScopes...)
+	// Decode the replayed assertion to recover the attribute cache ID and authorized permissions.
+	// The assertion is freshly minted server-side by the flow engine in this same request, so no
+	// signature verification is needed (unlike the interactive callback, where it arrives from the browser).
+	var attributeCacheID string
+	permissionScopes := oauthParams.PermissionScopes
+	if flowStep != nil && flowStep.Assertion != "" {
+		claims, _, decodeErr := decodeAttributesFromAssertion(flowStep.Assertion)
+		if decodeErr != nil {
+			as.logger.Error(ctx, "Failed to decode replayed SSO assertion", log.Error(decodeErr))
+			return nil, &AuthorizationError{
+				Code:              oauth2const.ErrorServerError,
+				Message:           "Failed to process authorization request",
+				SendErrorToClient: true,
+				ClientRedirectURI: oauthParams.RedirectURI,
+				State:             oauthParams.State,
+			}
+		}
+		attributeCacheID = claims.attributeCacheID
+		// Mirror the interactive path: grant only the permissions authorized by the flow, not the
+		// raw requested scopes. Empty authorized_permissions clears permission scopes entirely.
+		if claims.authorizedPermissions != "" {
+			permissionScopes = utils.ParseStringArray(claims.authorizedPermissions, " ")
+		} else {
+			permissionScopes = []string{}
+		}
+	}
+
+	allScopes := append(append([]string{}, oauthParams.StandardScopes...), permissionScopes...)
 	oauthConfig := config.GetServerRuntime().Config.OAuth
 	now := time.Now().UTC()
 	expiryTime := now.Add(time.Duration(oauthConfig.AuthorizationCode.ValidityPeriod) * time.Second)
@@ -623,6 +654,7 @@ func (as *authorizeService) issueSilentCode(
 		RedirectURI:         oauthParams.RedirectURI,
 		RedirectURIProvided: oauthParams.RedirectURIProvided,
 		AuthorizedUserID:    sessionRec.SubjectID,
+		AttributeCacheID:    attributeCacheID,
 		TimeCreated:         now,
 		ExpiryTime:          expiryTime,
 		Scopes:              utils.StringifyStringArray(allScopes, " "),

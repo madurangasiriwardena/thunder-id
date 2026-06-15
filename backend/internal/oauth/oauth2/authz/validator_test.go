@@ -561,7 +561,7 @@ func (suite *AuthorizationValidatorTestSuite) TestValidateAuthzReq_PKCENotRequir
 
 // Prompt Parameter Validation Tests (OIDC Core §3.1.2.1)
 
-func (suite *AuthorizationValidatorTestSuite) TestValidateInitialAuthzRequest_PromptNone_LoginRequired() {
+func (suite *AuthorizationValidatorTestSuite) TestValidateInitialAuthzRequest_PromptNone_Valid() {
 	msg := &OAuthMessage{
 		RequestQueryParams: map[string]string{
 			constants.RequestParamClientID:     "test-client-id",
@@ -571,12 +571,13 @@ func (suite *AuthorizationValidatorTestSuite) TestValidateInitialAuthzRequest_Pr
 		},
 	}
 
-	sendErrorToApp, errorCode, errorMessage := suite.validator.validateInitialAuthorizationRequest(context.Background(),
+	_, errorCode, errorMessage := suite.validator.validateInitialAuthorizationRequest(context.Background(),
 		msg, suite.oauthApp)
 
-	assert.True(suite.T(), sendErrorToApp)
-	assert.Equal(suite.T(), constants.ErrorLoginRequired, errorCode)
-	assert.Equal(suite.T(), "User authentication is required", errorMessage)
+	// prompt=none passes validation; login_required vs silent code is resolved downstream
+	// after the browser SSO session is consulted.
+	assert.Empty(suite.T(), errorCode)
+	assert.Empty(suite.T(), errorMessage)
 }
 
 func (suite *AuthorizationValidatorTestSuite) TestValidateInitialAuthorizationRequest_PromptLogin_Success() {

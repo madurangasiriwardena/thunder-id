@@ -186,8 +186,8 @@ var ssoPwdOtpFlow = testutils.Flow{
 var ssoUserSchema = testutils.UserType{
 	Name: "sso_test_user",
 	Schema: map[string]interface{}{
-		"username": map[string]interface{}{"type": "string"},
-		"password": map[string]interface{}{"type": "string", "credential": true},
+		"username":     map[string]interface{}{"type": "string"},
+		"password":     map[string]interface{}{"type": "string", "credential": true},
 		"mobileNumber": map[string]interface{}{"type": "string"},
 	},
 }
@@ -289,7 +289,8 @@ func (ts *SSOSessionTestSuite) SetupSuite() {
 	ts.Require().NoError(err, "create appA")
 	ts.appAID = appAID
 
-	// appB — OU1, G1, flowPwd
+	// appB — OU1, G1, flowPwd. Configured to embed mobileNumber in the access token so the
+	// silent-SSO token-attribute test can assert attributes survive session reuse.
 	appBID, err := testutils.CreateApplication(testutils.Application{
 		Name:             "SSO App B",
 		OUID:             ouID1,
@@ -299,6 +300,21 @@ func (ts *SSOSessionTestSuite) SetupSuite() {
 		RedirectURIs:     []string{ssoRedirectURIOU1},
 		AllowedUserTypes: []string{ssoUserSchema.Name},
 		SessionGroupID:   groupID1,
+		InboundAuthConfig: []map[string]interface{}{
+			{
+				"type": "oauth2",
+				"config": map[string]interface{}{
+					"clientId":     "sso_app_b",
+					"clientSecret": ssoClientSecret,
+					"redirectUris": []string{ssoRedirectURIOU1},
+					"token": map[string]interface{}{
+						"accessToken": map[string]interface{}{
+							"userAttributes": []string{"mobileNumber"},
+						},
+					},
+				},
+			},
+		},
 	})
 	ts.Require().NoError(err, "create appB")
 	ts.appBID = appBID
@@ -432,6 +448,23 @@ func (ts *SSOSessionTestSuite) TestSSO_SameGroup_SilentCode() {
 		"expected authorization code in redirect, got: %s", location)
 	ts.Require().False(testutils.AssertLoginRequired(location),
 		"unexpected login_required for same-group SSO")
+
+	// Exchange the silently-issued code for tokens and verify the access token carries the user
+	// attribute (mobileNumber). This is the regression guard: a reused session must attach user
+	// attributes to the issued tokens, not just produce a code.
+	code, err := testutils.ExtractAuthorizationCode(location)
+	ts.Require().NoError(err, "extract code from silent SSO redirect")
+
+	result, err := testutils.RequestToken("sso_app_b", ssoClientSecret, code, ssoRedirectURIOU1,
+		"authorization_code")
+	ts.Require().NoError(err, "token exchange for silent SSO code")
+	ts.Require().Equal(http.StatusOK, result.StatusCode, "token exchange must succeed: %s", string(result.Body))
+	ts.Require().NotNil(result.Token, "token response must be present")
+
+	accessClaims, err := testutils.DecodeJWT(result.Token.AccessToken)
+	ts.Require().NoError(err, "decode silent-SSO access token")
+	ts.Require().Equal("+15550001234", accessClaims.Additional["mobileNumber"],
+		"silent-SSO access token must carry the user's mobileNumber attribute")
 }
 
 // TestSSO_DifferentGroups_LoginRequired verifies that two apps in different session groups

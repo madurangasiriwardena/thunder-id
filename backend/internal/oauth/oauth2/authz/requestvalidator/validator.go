@@ -130,9 +130,10 @@ func ValidatePromptParameter(prompt string) (string, string) {
 				"prompt value 'none' must not be combined with other values"
 		}
 
-		// The server does not support server-side sessions as of now.
-		return constants.ErrorLoginRequired,
-			"User authentication is required"
+		// prompt=none is valid here. Whether a code can be issued silently, or login_required /
+		// interaction_required must be returned, is decided downstream once the browser SSO
+		// session has been resolved (see initiateFlowAndStoreRequest / replayWithSession).
+		return "", ""
 	}
 
 	// The server does not support consent or account selection prompts as of now.

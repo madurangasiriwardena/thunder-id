@@ -17,6 +17,7 @@
  */
 
 import {render, screen} from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import {describe, it, expect, vi} from 'vitest';
 import CertificateTypes from '../../../../constants/certificate-types';
 import type {Application} from '../../../../models/application';
@@ -27,6 +28,12 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
   }),
+}));
+
+// EditAdvancedSettings loads the deployment session groups for the SSO Session Group dropdown.
+// Stub the hook so the component renders without the ConfigProvider/QueryClient providers.
+vi.mock('../../../../api/useGetSessionGroups', () => ({
+  default: () => ({data: {groups: [{id: 'g1', name: 'Group One'}]}}),
 }));
 
 describe('EditAdvancedSettings', () => {
@@ -137,6 +144,38 @@ describe('EditAdvancedSettings', () => {
 
       expect(screen.getByText('applications:edit.advanced.labels.createdAt')).toBeInTheDocument();
       expect(screen.getByText('applications:edit.advanced.labels.updatedAt')).toBeInTheDocument();
+    });
+  });
+
+  describe('SSO Session Group', () => {
+    it('includes the selected session group in the inboundAuthConfig payload', async () => {
+      const user = userEvent.setup();
+      const onFieldChange = vi.fn();
+      const appWithOAuth = {
+        ...mockApplication,
+        inboundAuthConfig: [{type: 'oauth2', config: mockOAuth2Config}],
+      } as Application;
+
+      render(
+        <EditAdvancedSettings
+          application={appWithOAuth}
+          editedApp={{}}
+          oauth2Config={mockOAuth2Config}
+          onFieldChange={onFieldChange}
+        />,
+      );
+
+      // The session group select shows the "OU default group" placeholder until a group is chosen.
+      await user.click(screen.getByText('applications:edit.advanced.sessionGroup.defaultOption'));
+      await user.click(await screen.findByRole('option', {name: 'Group One'}));
+
+      // The change must carry sessionGroupId on the oauth2 inbound config so it is included in
+      // the PUT payload assembled by the edit page (which spreads editedApp verbatim).
+      const lastCall = onFieldChange.mock.calls.find(([field]) => field === 'inboundAuthConfig');
+      expect(lastCall).toBeDefined();
+      const updatedConfigs = lastCall?.[1] as {type: string; config: {sessionGroupId?: string}}[];
+      const oauthEntry = updatedConfigs.find((c) => c.type === 'oauth2');
+      expect(oauthEntry?.config.sessionGroupId).toBe('g1');
     });
   });
 

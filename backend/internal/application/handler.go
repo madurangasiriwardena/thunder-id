@@ -266,6 +266,7 @@ func (ah *applicationHandler) HandleApplicationGetRequest(w http.ResponseWriter,
 				ScopeClaims:                        config.OAuthConfig.ScopeClaims,
 				Certificate:                        config.OAuthConfig.Certificate,
 				AcrValues:                          config.OAuthConfig.AcrValues,
+				SessionGroupID:                     config.OAuthConfig.SessionGroupID,
 			}
 			returnInboundAuthConfigs = append(returnInboundAuthConfigs, inboundmodel.InboundAuthConfig{
 				Type:        config.Type,
@@ -461,6 +462,7 @@ func (ah *applicationHandler) processInboundAuthConfig(
 				ScopeClaims:                        config.OAuthConfig.ScopeClaims,
 				Certificate:                        config.OAuthConfig.Certificate,
 				AcrValues:                          config.OAuthConfig.AcrValues,
+				SessionGroupID:                     config.OAuthConfig.SessionGroupID,
 			}
 			returnInboundAuthConfigs = append(returnInboundAuthConfigs, inboundmodel.InboundAuthConfigWithSecret{
 				Type:        config.Type,
@@ -539,6 +541,7 @@ func (ah *applicationHandler) processInboundAuthConfigFromRequest(
 				ScopeClaims:                        config.OAuthConfig.ScopeClaims,
 				Certificate:                        config.OAuthConfig.Certificate,
 				AcrValues:                          config.OAuthConfig.AcrValues,
+				SessionGroupID:                     config.OAuthConfig.SessionGroupID,
 			},
 		}
 		inboundAuthConfigDTOs = append(inboundAuthConfigDTOs, inboundAuthConfigDTO)

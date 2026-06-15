@@ -1463,6 +1463,73 @@ const translations = {
   },
 
   // ============================================================================
+  // Session Groups namespace - SSO session group management translations
+  // ============================================================================
+  sessionGroups: {
+    // Session modes
+    'mode.managed': 'Managed',
+    'mode.sessionless': 'Sessionless',
+
+    // List page
+    'listing.title': 'SSO Session Groups',
+    'listing.subtitle':
+      'Group applications into single sign-on boundaries. Applications sharing a managed session group single sign-on with each other.',
+    'listing.backToApplications': 'Back to Applications',
+    'listing.addSessionGroup': 'Add Session Group',
+    'listing.error': 'Failed to load session groups',
+    'listing.defaultBadge': 'Default',
+    'listing.deleteDefaultDisabled': 'The default session group cannot be deleted',
+    'listing.columns.name': 'Name',
+    'listing.columns.organizationUnit': 'Organization Unit',
+    'listing.columns.mode': 'Session Mode',
+    'listing.columns.actions': 'Actions',
+
+    // Create dialog
+    'create.title': 'Create Session Group',
+    'create.submit': 'Create',
+    'create.creating': 'Creating...',
+    'create.success': 'Session group created successfully.',
+    'create.error': 'Failed to create session group. Please try again.',
+    'create.form.name.label': 'Name',
+    'create.form.name.placeholder': 'Enter session group name',
+    'create.form.mode.label': 'Session Mode',
+    'create.form.mode.hint':
+      'Managed keeps a browser SSO session for apps in this group. Sessionless runs a fresh login for every authorization.',
+    'create.form.organizationUnit.label': 'Organization Unit',
+
+    // Edit page
+    'edit.back': 'Back to Session Groups',
+    'edit.subtitle': 'Update the session group name and SSO behaviour.',
+    'edit.error': 'Failed to load session group',
+    'edit.notFound': 'Session group not found',
+    'edit.saveError': 'Failed to save session group. Please try again.',
+    'edit.unsavedChanges': 'You have unsaved changes',
+    'edit.reset': 'Reset',
+    'edit.save': 'Save Changes',
+    'edit.saving': 'Saving...',
+    'edit.defaultNotice': 'This is the default session group for its organization unit.',
+    'edit.form.name.label': 'Name',
+    'edit.form.mode.label': 'Session Mode',
+    'edit.form.organizationUnit.label': 'Organization Unit',
+    'edit.dangerZone.title': 'Danger Zone',
+    'edit.dangerZone.description': 'Deleting this session group is permanent and cannot be undone.',
+    'edit.dangerZone.defaultDescription': 'The default session group cannot be deleted.',
+    'edit.dangerZone.delete': 'Delete this session group',
+
+    // Delete dialog
+    'delete.title': 'Delete Session Group',
+    'delete.message': 'Are you sure you want to delete this session group?',
+    'delete.disclaimer':
+      'This action cannot be undone. Applications assigned to this group will fall back to their organization unit’s default SSO group.',
+    'delete.success': 'Session group deleted successfully.',
+    'delete.error': 'Failed to delete session group. Please try again.',
+
+    // Update toasts
+    'update.success': 'Session group updated successfully.',
+    'update.error': 'Failed to update session group. Please try again.',
+  },
+
+  // ============================================================================
   // Integrations namespace - Integrations feature translations
   // ============================================================================
   integrations: {
@@ -1579,6 +1646,7 @@ const translations = {
     'listing.title': 'Applications',
     'listing.subtitle': 'Manage your applications and services',
     'listing.addApplication': 'Add Application',
+    'listing.manageSessionGroups': 'Session Groups',
     'listing.columns.name': 'Name',
     'listing.columns.clientId': 'Client ID',
     'listing.columns.actions': 'Actions',

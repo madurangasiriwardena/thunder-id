@@ -60,6 +60,10 @@ const (
 	svcJWTWithIat = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ0ZXN0LXVzZXIiLCJpYXQiOjE3MDE0MjEyMDB9."
 	// Header: {"alg":"none","typ":"JWT"}   Payload: {"sub":"test-user"}
 	svcJWTMinimal = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ0ZXN0LXVzZXIifQ."
+	// Header: {"alg":"none","typ":"JWT"}
+	// Payload: {"sub":"user-123","aci":"cache-xyz","authorized_permissions":"read"}
+	svcSSOAssertion = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0." +
+		"eyJzdWIiOiJ1c2VyLTEyMyIsImFjaSI6ImNhY2hlLXh5eiIsImF1dGhvcml6ZWRfcGVybWlzc2lvbnMiOiJyZWFkIn0."
 )
 
 type AuthorizeServiceTestSuite struct {
@@ -544,6 +548,52 @@ func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_Si
 	assert.Empty(suite.T(), result.QueryParams, "silent SSO must not produce login-page query params")
 	assert.Contains(suite.T(), result.RedirectURI, "code=")
 	assert.Contains(suite.T(), result.RedirectURI, "iss=")
+}
+
+// TestHandleInitialAuthorizationRequest_SilentSSO_AttachesAttributesAndPermissions verifies that the
+// silent SSO code carries the attribute cache ID and authorized permissions decoded from the replayed
+// flow assertion, so tokens minted from a reused session attach the same user attributes (and validated
+// permissions) as a fresh login.
+func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_AttachesAttributesAndPermissions() {
+	app := suite.testApp()
+	suite.mockInboundClient.EXPECT().GetOAuthClientByClientID(mock.Anything, "test-client-id").Return(app, nil)
+	suite.mockValidator.On("validateInitialAuthorizationRequest", mock.Anything, mock.Anything, app).
+		Return(false, "", "")
+	// Replay completes and returns an assertion carrying aci + authorized_permissions="read".
+	suite.mockFlowExecService.EXPECT().InitiateAndExecute(mock.Anything,
+		mock.AnythingOfType("*flowexec.FlowInitContext")).
+		Return(&flowexec.FlowStep{
+			Status:      flowcm.FlowStatusComplete,
+			ExecutionID: "exec-sso",
+			Assertion:   svcSSOAssertion,
+		}, nil)
+
+	var insertedCode AuthorizationCode
+	suite.mockAuthzCodeStore.EXPECT().InsertAuthorizationCode(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, authzCode AuthorizationCode) {
+			insertedCode = authzCode
+		}).Return(nil)
+
+	sessionRec := &session.SessionRecord{
+		SessionID:      "sess-abc",
+		SubjectID:      "user-123",
+		SessionGroupID: testGroupID,
+		AssuranceLevel: "low",
+		State:          session.SessionStateActive,
+	}
+
+	svc := suite.newServiceWithSession(&stubSessionSvcWithRecord{rec: sessionRec})
+	r := httptest.NewRequest(http.MethodGet, "/oauth2/authorize", nil)
+	result, authErr := svc.HandleInitialAuthorizationRequest(context.Background(), suite.testMsg(), r)
+
+	assert.Nil(suite.T(), authErr)
+	require.NotNil(suite.T(), result)
+	assert.NotEmpty(suite.T(), result.RedirectURI, "silent SSO must produce a redirect URI")
+	// The attribute cache ID from the replayed assertion must ride on the code so /token attaches attributes.
+	assert.Equal(suite.T(), "cache-xyz", insertedCode.AttributeCacheID)
+	// Permissions must come from the assertion (authorized "read"), not the raw requested scope ("read write").
+	assert.Contains(suite.T(), insertedCode.Scopes, "read")
+	assert.NotContains(suite.T(), insertedCode.Scopes, "write")
 }
 
 func (suite *AuthorizeServiceTestSuite) TestHandleInitialAuthorizationRequest_SilentSSO_PromptLogin_Interactive() {

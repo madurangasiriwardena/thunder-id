@@ -107,6 +107,8 @@ const LoginFlowBuilderPage = lazy(() => import('./features/login-flow/pages/Logi
 const CreateRolePage = lazy(() => import('./features/roles/pages/CreateRolePage'));
 const RoleEditPage = lazy(() => import('./features/roles/pages/RoleEditPage'));
 const RolesListPage = lazy(() => import('./features/roles/pages/RolesListPage'));
+const SessionGroupsListPage = lazy(() => import('./features/session-groups/pages/SessionGroupsListPage'));
+const SessionGroupEditPage = lazy(() => import('./features/session-groups/pages/SessionGroupEditPage'));
 const CreateUserTypePage = lazy(() => import('./features/user-types/pages/CreateUserTypePage'));
 const UserTypesListPage = lazy(() => import('./features/user-types/pages/UserTypesListPage'));
 const ViewUserTypePage = lazy(() => import('./features/user-types/pages/ViewUserTypePage'));
@@ -142,6 +144,8 @@ export default function App(): JSX.Element {
               <Route path="roles/:roleId" element={<RoleEditPage />} />
               <Route path="applications" element={<ApplicationsListPage />} />
               <Route path="applications/:applicationId" element={<ApplicationEditPage />} />
+              <Route path="session-groups" element={<SessionGroupsListPage />} />
+              <Route path="session-groups/:sessionGroupId" element={<SessionGroupEditPage />} />
               <Route path="agents" element={<AgentsListPage />} />
               <Route path="agents/:agentId" element={<AgentEditPage />} />
               <Route path="flows" element={<FlowsListPage />} />

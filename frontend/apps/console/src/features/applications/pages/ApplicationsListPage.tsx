@@ -18,7 +18,7 @@
 
 import {useLogger} from '@thunderid/logger/react';
 import {Stack, Button, TextField, InputAdornment, PageContent, PageTitle} from '@wso2/oxygen-ui';
-import {Plus, Search} from '@wso2/oxygen-ui-icons-react';
+import {Layers, Plus, Search} from '@wso2/oxygen-ui-icons-react';
 import type {JSX} from 'react';
 import {useTranslation} from 'react-i18next';
 import {useNavigate} from 'react-router';
@@ -36,20 +36,36 @@ export default function ApplicationsListPage(): JSX.Element {
         <PageTitle.Header>{t('applications:listing.title')}</PageTitle.Header>
         <PageTitle.SubHeader>{t('applications:listing.subtitle')}</PageTitle.SubHeader>
         <PageTitle.Actions>
-          <Button
-            data-testid="application-add-button"
-            variant="contained"
-            startIcon={<Plus size={18} />}
-            onClick={() => {
-              (async () => {
-                await navigate('/applications/create');
-              })().catch((error: unknown) => {
-                logger.error('Failed to navigate to create application page', {error});
-              });
-            }}
-          >
-            {t('applications:listing.addApplication')}
-          </Button>
+          <Stack direction="row" spacing={2}>
+            <Button
+              data-testid="session-groups-button"
+              variant="outlined"
+              startIcon={<Layers size={18} />}
+              onClick={() => {
+                (async () => {
+                  await navigate('/session-groups');
+                })().catch((error: unknown) => {
+                  logger.error('Failed to navigate to session groups page', {error});
+                });
+              }}
+            >
+              {t('applications:listing.manageSessionGroups')}
+            </Button>
+            <Button
+              data-testid="application-add-button"
+              variant="contained"
+              startIcon={<Plus size={18} />}
+              onClick={() => {
+                (async () => {
+                  await navigate('/applications/create');
+                })().catch((error: unknown) => {
+                  logger.error('Failed to navigate to create application page', {error});
+                });
+              }}
+            >
+              {t('applications:listing.addApplication')}
+            </Button>
+          </Stack>
         </PageTitle.Actions>
       </PageTitle>
 
