@@ -22,6 +22,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/thunder-id/thunderid/internal/flow/session"
 	"github.com/thunder-id/thunderid/internal/system/error/apierror"
 	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 	"github.com/thunder-id/thunderid/internal/system/log"
@@ -31,11 +32,14 @@ import (
 // FlowExecutionHandler handles flow execution requests.
 type flowExecutionHandler struct {
 	flowExecService FlowExecServiceInterface
+	ssoCarrier      session.HandleCarrier
 }
 
 func newFlowExecutionHandler(flowExecService FlowExecServiceInterface) *flowExecutionHandler {
 	return &flowExecutionHandler{
 		flowExecService: flowExecService,
+		// TODO(sso): drive Secure from deployment config (true behind TLS).
+		ssoCarrier: session.NewCookieCarrier(false),
 	}
 }
 
@@ -58,8 +62,12 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 	inputs := sysutils.SanitizeStringMap(flowR.Inputs)
 	challengeToken := sysutils.SanitizeString(flowR.ChallengeToken)
 
+	// Read the inbound SSO transport inputs (per-flow handle cookies + binding) and make
+	// them available to the flow service, which selects the handle once the flow is known.
+	ctx := session.WithInbound(r.Context(), h.ssoCarrier.Read(r))
+
 	flowStep, flowErr := h.flowExecService.Execute(
-		r.Context(), appID, executionID, flowTypeStr, verbose, action, inputs, challengeToken)
+		ctx, appID, executionID, flowTypeStr, verbose, action, inputs, challengeToken)
 
 	if flowErr != nil {
 		handleFlowError(r.Context(), w, flowErr)
@@ -71,6 +79,13 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 	if flowStep.Error != nil {
 		resp := convertToAPIError(flowStep.Error)
 		stepErrorResp = &resp
+	}
+
+	// Emit the per-flow SSO handle cookie when the flow minted a new session handle. This must
+	// happen before the response body is written.
+	if flowStep.SSOHandleOut != "" && flowStep.SSOFlowID != "" {
+		h.ssoCarrier.Write(w, session.CookieName(flowStep.SSOFlowID), flowStep.SSOHandleOut,
+			session.DefaultHandleTTL)
 	}
 
 	flowResp := FlowResponse{

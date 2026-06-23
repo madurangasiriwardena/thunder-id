@@ -244,6 +244,9 @@ const (
 	RuntimeKeyOpenID4VPState = "openid4vpVerificationState"
 	// RuntimeKeyRequestedAuthClasses holds the space-separated ACR values from acr_values.
 	RuntimeKeyRequestedAuthClasses = "requested_auth_classes"
+	// RuntimeKeyMaxAge holds the OIDC max_age request parameter (maximum allowed elapsed seconds
+	// since the subject last authenticated).
+	RuntimeKeyMaxAge = "max_age"
 	// RuntimeKeySelectedAuthClass holds the ACR value of the chosen authentication method.
 	RuntimeKeySelectedAuthClass = "selected_auth_class"
 	// RuntimeKeyAllowedLoginOptions holds the space-separated action refs allowed on a LOGIN_OPTIONS node.
@@ -259,6 +262,25 @@ const (
 	RuntimeKeyEntityState = "entityState"
 	// RuntimeKeyAuthorizationRequestID holds the identifier of the authorization request.
 	RuntimeKeyAuthorizationRequestID = "authorizationRequestId"
+	// RuntimeKeySSOSessionPresent indicates whether the SSO-Check node found a live, compatible
+	// session for the current flow ("true") or not ("false"). Downstream nodes branch on this
+	// value via a node condition.
+	RuntimeKeySSOSessionPresent = "ssoSessionPresent"
+	// RuntimeKeySSOResolvedHandle holds the handle of the session the SSO-Check node resolved,
+	// so the Session node can load its saved flow state on the SSO path.
+	RuntimeKeySSOResolvedHandle = "ssoResolvedHandle"
+	// RuntimeKeySSOSessionSaved holds the handle minted by the Session node on the fresh path,
+	// making the save idempotent if the node is re-executed within the same flow context.
+	RuntimeKeySSOSessionSaved = "ssoSessionSaved"
+	// RuntimeKeyAuthTime holds the Unix timestamp (seconds) at which the subject authenticated
+	// for the current session, carried across the SSO path for downstream assurance checks.
+	RuntimeKeyAuthTime = "authTime"
+)
+
+// User input key constants for well-known keys used in UserInputs across flow executors.
+const (
+	// UserInputKeyLoginHint is the UserInputs key for the CIBA login_hint value.
+	UserInputKeyLoginHint = "login_hint"
 )
 
 // TODO: Define a go type for InputType when formalizing input types

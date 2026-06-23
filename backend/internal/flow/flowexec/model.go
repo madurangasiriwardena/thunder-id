@@ -63,6 +63,16 @@ type EngineContext struct {
 	ExecutionHistory  map[string]*common.NodeExecutionRecord
 
 	InterceptorSharedData map[string]string
+
+	// SSOHandleIn / SSOBinding carry the inbound SSO transport inputs for this request.
+	// They are transient: read from the carrier at the start of execution and never
+	// persisted with the flow context.
+	SSOHandleIn string
+	SSOBinding  string
+	// SSOFlowVersion is the current active version of this flow's definition, resolved via
+	// the flow management provider. Transient; used by the SSO-Check node to reject sessions
+	// established at an incompatible flow version.
+	SSOFlowVersion int
 }
 
 // mergeRuntimeData merges the given data into RuntimeData.
@@ -106,6 +116,12 @@ type FlowStep struct {
 	Data           FlowData
 	Assertion      string
 	Error          *serviceerror.ServiceError
+
+	// SSOHandleOut / SSOFlowID carry an SSO session handle minted during this step back to the
+	// transport layer (the handler), which sets it as a per-flow cookie. They are not part of
+	// the JSON response body.
+	SSOHandleOut string
+	SSOFlowID    string
 }
 
 // FlowData holds the data returned by a flow execution step

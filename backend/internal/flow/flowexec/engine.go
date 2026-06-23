@@ -126,6 +126,12 @@ func (fe *flowEngine) Execute(ctx *EngineContext) (FlowStep, *serviceerror.Servi
 			Application:      ctx.Application,
 			AuthUser:         ctx.AuthUser,
 			ExecutionHistory: ctx.ExecutionHistory,
+			SSO: core.SSOInputs{
+				Handle:      ctx.SSOHandleIn,
+				Binding:     ctx.SSOBinding,
+				FlowID:      ssoFlowID(ctx),
+				FlowVersion: ctx.SSOFlowVersion,
+			},
 		}
 		if nodeCtx.NodeInputs == nil {
 			nodeCtx.NodeInputs = make([]common.Input, 0)
@@ -629,6 +635,14 @@ func (fe *flowEngine) processNodeResponse(ctx *EngineContext, nodeResp *common.N
 	if nodeResp.Status == "" {
 		logger.Error(ctx.Context, "Node response status not found in the flow graph")
 		return nil, false, &serviceerror.InternalServerError
+	}
+
+	// Carry any SSO handle minted by this node onto the flow step so the transport layer can
+	// emit it. Stamped here (not only at completion) so it survives an immediately following
+	// prompt step that returns the flow as incomplete.
+	if nodeResp.SSOHandleOut != "" {
+		flowStep.SSOHandleOut = nodeResp.SSOHandleOut
+		flowStep.SSOFlowID = ssoFlowID(ctx)
 	}
 
 	switch nodeResp.Status {
@@ -1277,4 +1291,33 @@ func processNodeResponseErrorForEventPublish(nodeResp *common.NodeResponse) map[
 			"defaultValue": nodeResp.Error.ErrorDescription.DefaultValue,
 		},
 	}
+}
+
+// ssoFlowID returns the current flow's ID (used as the SSO group key), or "" if no graph
+// is set on the context.
+func ssoFlowID(ctx *EngineContext) string {
+	if ctx == nil || ctx.Graph == nil {
+		return ""
+	}
+	return ctx.Graph.GetID()
+}
+
+// flowUsesSSOSession reports whether the flow graph contains a node that establishes or
+// consults an SSO session (the Session or SSO-Check executors). It gates the active-flow-version
+// lookup so only SSO-capable flows pay for it.
+func flowUsesSSOSession(graph core.GraphInterface) bool {
+	if graph == nil {
+		return false
+	}
+	for _, node := range graph.GetNodes() {
+		backed, ok := node.(core.ExecutorBackedNodeInterface)
+		if !ok {
+			continue
+		}
+		switch backed.GetExecutorName() {
+		case executor.ExecutorNameSession, executor.ExecutorNameSSOCheck:
+			return true
+		}
+	}
+	return false
 }

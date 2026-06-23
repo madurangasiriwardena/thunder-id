@@ -47,6 +47,24 @@ type NodeContext struct {
 	Application      appmodel.Application
 	AuthUser         manager.AuthUser
 	ExecutionHistory map[string]*common.NodeExecutionRecord
+
+	// SSO carries the request-scoped inputs the SSO-Check node needs to resolve a session.
+	// It is transient and never persisted with the flow context.
+	SSO SSOInputs
+}
+
+// SSOInputs holds the inputs the SSO-Check node uses to decide whether a live session
+// exists for the current flow. FlowID and FlowVersion describe the current flow definition
+// so the node can reject sessions from a different flow or an incompatible version.
+type SSOInputs struct {
+	// Handle is the inbound session handle carried for the current flow (empty if none).
+	Handle string
+	// Binding is the binding value presented with this request.
+	Binding string
+	// FlowID is the current flow's ID (the SSO group key).
+	FlowID string
+	// FlowVersion is the current active version of the flow definition.
+	FlowVersion int
 }
 
 // NodeCondition represents a condition that must be met for a node to execute.

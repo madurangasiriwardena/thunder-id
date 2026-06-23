@@ -7,10 +7,10 @@ package ou
 import (
 	"context"
 
+	mock "github.com/stretchr/testify/mock"
 	"github.com/thunder-id/thunderid/internal/system/error/serviceerror"
 	"github.com/thunder-id/thunderid/internal/system/security"
 	sysauthz "github.com/thunder-id/thunderid/internal/system/sysauthz"
-	mock "github.com/stretchr/testify/mock"
 )
 
 // newSystemAuthorizationServiceMock creates a new instance of systemAuthorizationServiceMock.

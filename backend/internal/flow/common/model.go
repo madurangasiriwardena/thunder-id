@@ -107,6 +107,9 @@ type NodeResponse struct {
 	Assertion      string                     `json:"assertion,omitempty"`
 	FieldErrors    []FieldError               `json:"fieldErrors,omitempty"`
 	AuthUser       authnprovidermgr.AuthUser  `json:"-"`
+	// SSOHandleOut is an SSO session handle the node minted that the transport layer should
+	// hand back to the client (e.g. as a Set-Cookie). Empty when no handle was minted.
+	SSOHandleOut string `json:"-"`
 }
 
 // ExecutorResponse represents the response from an executor
@@ -120,6 +123,9 @@ type ExecutorResponse struct {
 	Assertion      string                     `json:"assertion,omitempty"`
 	Error          *serviceerror.ServiceError `json:"error,omitempty"`
 	AuthUser       authnprovidermgr.AuthUser  `json:"-"`
+	// SSOHandleOut is an SSO session handle the executor minted that the transport layer
+	// should hand back to the client (e.g. as a Set-Cookie). Empty when no handle was minted.
+	SSOHandleOut string `json:"-"`
 }
 
 // InterceptorResponse represents the response from an interceptor execution

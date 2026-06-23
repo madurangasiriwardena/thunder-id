@@ -225,6 +225,7 @@ func (as *authorizeService) handleStandardAuthorizationRequest(
 
 	nonce := msg.RequestQueryParams[oauth2const.RequestParamNonce]
 	acrValues := msg.RequestQueryParams[oauth2const.RequestParamAcrValues]
+	maxAge := msg.RequestQueryParams[oauth2const.RequestParamMaxAge]
 	dpopJkt := msg.RequestQueryParams[oauth2const.RequestParamDPoPJkt]
 	prompt := msg.RequestQueryParams[oauth2const.RequestParamPrompt]
 
@@ -290,6 +291,7 @@ func (as *authorizeService) handleStandardAuthorizationRequest(
 		ClaimsLocales:       claimsLocales,
 		Nonce:               nonce,
 		AcrValues:           acrValues,
+		MaxAge:              maxAge,
 		DPoPJkt:             dpopJkt,
 		Prompt:              prompt,
 	}
@@ -352,6 +354,9 @@ func (as *authorizeService) initiateFlowAndStoreRequest(
 	}
 	if slices.Contains(strings.Fields(oauthParams.Prompt), oauth2const.PromptConsent) {
 		runtimeData[flowcm.RuntimeKeyForceConsentReprompt] = "true"
+	}
+	if oauthParams.MaxAge != "" {
+		runtimeData[flowcm.RuntimeKeyMaxAge] = oauthParams.MaxAge
 	}
 	flowInitCtx := &flowexec.FlowInitContext{
 		ApplicationID: app.ID,

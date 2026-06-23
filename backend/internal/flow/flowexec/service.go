@@ -28,6 +28,8 @@ import (
 	"github.com/thunder-id/thunderid/internal/actorprovider"
 	"github.com/thunder-id/thunderid/internal/flow/common"
 	flowconfig "github.com/thunder-id/thunderid/internal/flow/config"
+	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
+	"github.com/thunder-id/thunderid/internal/flow/session"
 	oauth2const "github.com/thunder-id/thunderid/internal/oauth/oauth2/constants"
 	sysContext "github.com/thunder-id/thunderid/internal/system/context"
 	"github.com/thunder-id/thunderid/internal/system/cryptolib"
@@ -128,6 +130,17 @@ func (s *flowExecService) Execute(ctx context.Context,
 	// Set trace ID to engine context (request context is already set during context loading)
 	engineCtx.TraceID = traceID
 
+	// Resolve the inbound SSO handle for this flow from the request-scoped transport inputs.
+	applyInboundSSO(engineCtx, ctx)
+	// Resolve the active flow version whenever the flow establishes or consults an SSO session.
+	// Both paths need it: the save path (fresh login, which carries no inbound handle) stamps the
+	// version onto the new session, and the check path compares against it. Gating this on an
+	// inbound handle would save sessions at version 0 and then fail the version check on the next
+	// login. Flows that use no SSO session skip the lookup.
+	if flowUsesSSOSession(engineCtx.Graph) {
+		engineCtx.SSOFlowVersion = s.resolveActiveFlowVersion(ctx, engineCtx, logger)
+	}
+
 	flowStep, flowErr := s.flowEngine.Execute(engineCtx)
 
 	if flowErr != nil {
@@ -166,6 +179,48 @@ func (s *flowExecService) Execute(ctx context.Context,
 	}
 
 	return &flowStep, nil
+}
+
+// applyInboundSSO selects the SSO handle carried for this flow from the request-scoped
+// transport inputs and stashes it (with the presented binding) on the engine context for
+// the SSO-Check node to consume. It is a no-op when no inbound transport is present.
+func applyInboundSSO(engineCtx *EngineContext, ctx context.Context) {
+	if engineCtx == nil || engineCtx.Graph == nil {
+		return
+	}
+	ih, ok := session.InboundFrom(ctx)
+	if !ok {
+		return
+	}
+	engineCtx.SSOHandleIn = ih.HandleFor(engineCtx.Graph.GetID())
+	engineCtx.SSOBinding = ih.Binding
+}
+
+// flowVersionLookup is the subset of the flow management provider used to resolve a flow's
+// active definition version. The configured flow provider already satisfies it.
+type flowVersionLookup interface {
+	GetFlow(ctx context.Context, flowID string) (*flowmgt.CompleteFlowDefinition, *serviceerror.ServiceError)
+}
+
+// resolveActiveFlowVersion returns the current active version of the flow, or 0 when it
+// cannot be determined. A 0 (unknown) version makes the SSO-Check node treat any saved
+// session as version-incompatible, i.e. it falls back to full authentication.
+func (s *flowExecService) resolveActiveFlowVersion(ctx context.Context, engineCtx *EngineContext,
+	logger *log.Logger) int {
+	if engineCtx.Graph == nil {
+		return 0
+	}
+	lookup, ok := s.flowProvider.(flowVersionLookup)
+	if !ok {
+		return 0
+	}
+	def, svcErr := lookup.GetFlow(ctx, engineCtx.Graph.GetID())
+	if svcErr != nil || def == nil {
+		logger.Debug(ctx, "Could not resolve active flow version for SSO check",
+			log.String("flowID", engineCtx.Graph.GetID()))
+		return 0
+	}
+	return def.ActiveVersion
 }
 
 // initContext initializes a new flow context with the given details.

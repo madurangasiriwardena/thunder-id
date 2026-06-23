@@ -58,6 +58,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/flow/flowmeta"
 	"github.com/thunder-id/thunderid/internal/flow/interceptor"
 	flowmgt "github.com/thunder-id/thunderid/internal/flow/mgt"
+	flowsession "github.com/thunder-id/thunderid/internal/flow/session"
 	"github.com/thunder-id/thunderid/internal/group"
 	"github.com/thunder-id/thunderid/internal/idp"
 	"github.com/thunder-id/thunderid/internal/inboundclient"
@@ -89,6 +90,7 @@ import (
 	"github.com/thunder-id/thunderid/internal/system/services"
 	"github.com/thunder-id/thunderid/internal/system/sysauthz"
 	"github.com/thunder-id/thunderid/internal/system/template"
+	"github.com/thunder-id/thunderid/internal/system/transaction"
 	"github.com/thunder-id/thunderid/internal/user"
 )
 
@@ -277,6 +279,7 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 	attributeCacheService := attributecache.Initialize()
 
 	emailClient := initEmailClient(ctx, logger)
+	sessionTransactioner := mustRuntimeDBTransactioner(ctx, logger)
 	flowFactory, graphCache, execRegistry, interceptorRegistry := initializeFlowCoreAndExecutor(ctx, logger,
 		cacheManager, executor.ExecutorDependencies{
 			OUService:             ouService,
@@ -303,6 +306,12 @@ func registerServices(mux *http.ServeMux, cacheManager cache.CacheManagerInterfa
 			GithubSvc:             githubAuthnService,
 			GoogleSvc:             googleAuthnService,
 			OpenID4VPVerifierSvc:  openid4vpVerifierSvc,
+			SessionStore: flowsession.NewStore(
+				dbprovider.GetDBProvider(), flowconfig.FromServerRuntime().DeploymentID),
+			SessionAuthCtxStore: flowsession.NewAuthContextStore(
+				dbprovider.GetDBProvider(), flowconfig.FromServerRuntime().DeploymentID,
+				flowsession.NewPassthroughEncryptor()),
+			SessionTransactioner: sessionTransactioner,
 		},
 		interceptor.InterceptorDependencies{},
 	)
@@ -424,6 +433,15 @@ func initEmailClient(ctx context.Context, logger *log.Logger) email.EmailClientI
 		return nil
 	}
 	return client
+}
+
+// mustRuntimeDBTransactioner returns the runtime DB transactioner, terminating startup on error.
+func mustRuntimeDBTransactioner(ctx context.Context, logger *log.Logger) transaction.Transactioner {
+	t, err := dbprovider.GetDBProvider().GetRuntimeDBTransactioner()
+	if err != nil {
+		logger.Fatal(ctx, "Failed to get runtime DB transactioner for sessions", log.Error(err))
+	}
+	return t
 }
 
 // initializeFlowCoreAndExecutor initializes the flow core and executor services.

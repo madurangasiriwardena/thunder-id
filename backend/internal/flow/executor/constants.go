@@ -47,6 +47,8 @@ const (
 	ExecutorNameAttributeUniquenessValidator = "AttributeUniquenessValidator"
 	ExecutorNameSMSExecutor                  = "SMSExecutor"
 	ExecutorNameFederatedAuthResolver        = "FederatedAuthResolverExecutor"
+	ExecutorNameSSOCheck                     = "SSOCheckExecutor"
+	ExecutorNameSession                      = "SessionExecutor"
 )
 
 // Executor mode constants
