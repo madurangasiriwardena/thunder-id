@@ -1,0 +1,252 @@
+# .github/workflows/api-quality-gate.yml
+#
+# API production-completeness quality gate (Plan A — API contract gate).
+#
+# Every job here is intended to be wired as a REQUIRED status check in branch
+# protection (api-quality-gate/governance/branch-protection.json). Job `name:`
+# values MUST match the contexts listed there:
+#   exemptions, api-lint, breaking-changes, contract-tests, coverage-meta
+#
+# Tooling layout note: the npm-based gate tooling lives in api-quality-gate/ (a
+# self-contained package) rather than the repo root, because the root is a pnpm
+# monorepo — a second npm package.json at the root would collide with pnpm. The
+# ruleset resolves override globs relative to its own directory, so the enforced
+# pilot spec (repo-root api/group.yaml) is referenced from the tooling dir as
+# ../api/group.yaml.
+#
+# Node follows the repo .nvmrc. Spectral 6.x supports node ">= 20.17" (incl. 22/24);
+# the transitive ajv codegen crash is fixed by the ajv `overrides` pin in
+# api-quality-gate/package.json, not by constraining the Node version.
+
+name: api-quality-gate
+
+on:
+  pull_request:
+    branches: [main]
+  merge_group: {}   # run again against the merged state in the merge queue
+
+# Which specs are gated is a DENY list: every api/*.yaml except those named in
+# api-quality-gate/governance/excluded-specs.yaml. A newly added spec is therefore
+# validated automatically, and opting out takes an explicit entry in a governed
+# file. `node scripts/list-specs.mjs` resolves the list.
+
+permissions:
+  contents: read
+
+jobs:
+  exemptions:
+    name: exemptions
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api-quality-gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - name: Validate + expire exemptions, emit effective ruleset
+        run: node scripts/validate-exemptions.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: effective-ruleset
+          path: api-quality-gate/.spectral.effective.yaml
+          retention-days: 5
+
+  api-lint:
+    name: api-lint
+    needs: exemptions
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api-quality-gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - name: Rebuild effective ruleset (base + governed exemptions)
+        run: node scripts/validate-exemptions.mjs
+      # Linted one file at a time: Spectral aborts the whole batch if any single
+      # document trips it, so a per-spec loop keeps one bad spec from hiding the
+      # results for all the others. Specs that come back clean are recorded so the
+      # downstream jobs can run per spec instead of being blocked by an unrelated
+      # spec's findings.
+      - name: Lint every gated OpenAPI spec against the effective ruleset
+        run: |
+          set -uo pipefail
+          rc=0
+          : > clean-specs.txt
+          for spec in $(node scripts/list-specs.mjs); do
+            echo "::group::$spec"
+            if npx spectral lint "../$spec" -r .spectral.effective.yaml --fail-severity=warn; then
+              echo "$spec" >> clean-specs.txt
+            else
+              rc=1
+            fi
+            echo "::endgroup::"
+          done
+          echo "Lint-clean specs:"; sed 's/^/  /' clean-specs.txt
+          exit $rc
+      - name: Publish the lint-clean spec list
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-specs
+          path: api-quality-gate/clean-specs.txt
+          retention-days: 5
+
+  breaking-changes:
+    name: breaking-changes
+    runs-on: ubuntu-latest
+    env:
+      # Pinned by version AND digest: `latest` would let the gate's verdict change
+      # without a commit, and would run whatever an upstream retag published.
+      OASDIFF_IMAGE: tufin/oasdiff:v1.28.0@sha256:86830f988eaafcf589acb2794ee5ab78e3300ded071d6517bf085469300cbf36
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+        working-directory: api-quality-gate
+      - name: Detect breaking changes against the base branch (oasdiff)
+        run: |
+          set -uo pipefail
+          base_ref="${{ github.base_ref || 'main' }}"
+          git fetch --no-tags --depth=1 origin "$base_ref"
+          mkdir -p /tmp/base
+          rc=0
+          for spec in $(node api-quality-gate/scripts/list-specs.mjs); do
+            # Absent from the PR means the spec list is wrong, not that the API is new.
+            if [[ ! -f "$spec" ]]; then
+              echo "::error::${spec} is listed for validation but missing from the working tree."
+              rc=1; continue
+            fi
+            # Only a genuinely absent base file may skip the comparison. Any other
+            # failure must fail the job: falling back to comparing the spec with
+            # itself would make this required check pass unconditionally.
+            if ! git cat-file -e "FETCH_HEAD:${spec}" 2>/dev/null; then
+              echo "::notice::${spec} does not exist on ${base_ref}; treating it as a new spec."
+              continue
+            fi
+            base="/tmp/base/$(echo "$spec" | tr '/' '_')"
+            git show "FETCH_HEAD:${spec}" > "$base" || { echo "::error::cannot read ${spec} on ${base_ref}"; rc=1; continue; }
+            echo "::group::$spec"
+            docker run --rm -v "$PWD:/work" -v /tmp/base:/base "$OASDIFF_IMAGE" \
+              breaking "/base/$(basename "$base")" "/work/${spec}" --fail-on ERR || rc=1
+            echo "::endgroup::"
+          done
+          exit $rc
+
+  contract-tests:
+    name: contract-tests
+    needs: api-lint
+    # Runs even when api-lint fails. api-lint covers every gated spec, so gating on
+    # its overall result would let one unrelated spec's findings block the contract
+    # tests for every other resource. Instead this consumes the lint-clean list and
+    # tests only those resources.
+    if: ${{ !cancelled() && needs.api-lint.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    # SQLite is the repo default (tests/integration/main.go) and the sqlite leg of
+    # pr-builder's integration matrix, so no service container and no schema seeding
+    # are needed: the build initialises the SQLite databases itself.
+    # Secret-free by design so it runs on fork PRs. Never switch to pull_request_target.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-specs
+          path: /tmp/clean
+      # A resource is contract-tested when its spec is lint-clean AND it has a
+      # package at tests/integration/contract/<resource>/.
+      - name: Resolve which resources to contract-test
+        id: resolve
+        run: |
+          set -euo pipefail
+          resources=""
+          while read -r spec; do
+            [ -n "$spec" ] || continue
+            resource="$(basename "$spec" .yaml)"
+            if [ -d "tests/integration/contract/${resource}" ]; then
+              resources="${resources} ${resource}"
+              echo "  ${spec} -> ./contract/${resource}/..."
+            else
+              echo "  ${spec} is lint-clean but has no contract package; skipping."
+            fi
+          done < /tmp/clean/clean-specs.txt
+          echo "resources=${resources# }" >> "$GITHUB_OUTPUT"
+          [ -n "$resources" ] || echo "::notice::No lint-clean spec has a contract package; nothing to run."
+      - name: Set up Go environment
+        if: steps.resolve.outputs.resources != ''
+        uses: ./.github/actions/setup-go
+      - name: Install dependencies
+        if: steps.resolve.outputs.resources != ''
+        run: |
+          cd backend && go mod download
+          cd ../tests/integration && go mod download
+      - name: Build distribution
+        if: steps.resolve.outputs.resources != ''
+        run: make build_with_coverage_only OS=$(go env GOOS) ARCH=$(go env GOARCH)
+      - name: Configure test database
+        if: steps.resolve.outputs.resources != ''
+        run: |
+          chmod +x tests/integration/resources/scripts/setup-test-config.sh
+          ./tests/integration/resources/scripts/setup-test-config.sh
+        env:
+          DB_TYPE: sqlite
+      # Boots the built distribution against SQLite and asserts the contract at
+      # runtime (usable next link, 409 conflict; filter/idempotency/cross-tenant are
+      # scaffolded, see tests/integration/contract/<resource>).
+      - name: Run contract tests against a live instance
+        if: steps.resolve.outputs.resources != ''
+        env:
+          DB_TYPE: sqlite
+        run: |
+          set -uo pipefail
+          rc=0
+          for resource in ${{ steps.resolve.outputs.resources }}; do
+            echo "::group::contract tests: $resource"
+            make contract-test CONTRACT_PACKAGE="./contract/${resource}/..." || rc=1
+            echo "::endgroup::"
+          done
+          exit $rc
+
+  coverage-meta:
+    name: coverage-meta
+    needs: api-lint
+    # Same reasoning as contract-tests: checked per spec against the lint-clean
+    # list, so one spec's findings cannot block the coverage check for the rest.
+    # A spec that passes lint is expected to carry contract coverage too.
+    if: ${{ !cancelled() && needs.api-lint.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api-quality-gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: clean-specs
+          path: /tmp/clean
+      - name: Every operation has an operationId and a contract test
+        run: |
+          set -uo pipefail
+          rc=0
+          while read -r spec; do
+            [ -n "$spec" ] || continue
+            resource="$(basename "$spec" .yaml)"
+            echo "::group::$spec"
+            CONTRACT_DIR="../tests/integration/contract/${resource}" \
+              node scripts/check-coverage.mjs "../$spec" || rc=1
+            echo "::endgroup::"
+          done < /tmp/clean/clean-specs.txt
+          exit $rc
