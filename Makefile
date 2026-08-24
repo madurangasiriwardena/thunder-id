@@ -57,6 +57,18 @@ test_unit:
 test_integration:
 	./build.sh test_integration "$(OS)" "$(ARCH)" "$(RUN)" "$(PACKAGE)"
 
+# Runtime contract tests for the API production-completeness quality gate. Reuses the
+# integration harness (boots the built distribution, hits the live server) but scopes to
+# the contract package. Requires a built distribution in target/dist (the CI job builds it
+# first; locally run a build such as `make build_with_coverage_only` beforehand).
+# CONTRACT_PACKAGE narrows the run to one resource, e.g. ./contract/group/... ; CI
+# sets it per lint-clean resource. The integration runner takes a single package
+# pattern, so run it once per resource rather than passing a list.
+CONTRACT_PACKAGE ?= ./contract/...
+
+contract-test:
+	$(MAKE) test_integration PACKAGE="$(CONTRACT_PACKAGE)"
+
 build_with_coverage:
 	@echo "================================================================"
 	@echo "Building with coverage for unit and integration tests..."
