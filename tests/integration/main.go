@@ -6,6 +6,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -143,14 +144,27 @@ func runTests() error {
 	var cmdName string
 	var args []string
 
+	// TEST_JSON_OUT asks for the machine-readable `go test -json` event stream to be
+	// written alongside the human output, so a caller can report per-test results
+	// (passed, failed, skipped) instead of inferring them from source. Off unless set.
+	jsonOut := os.Getenv("TEST_JSON_OUT")
+
 	if useGotestsum {
 		fmt.Println("Running integration tests using gotestsum...")
 		cmdName = "gotestsum"
+		if jsonOut != "" {
+			args = append(args, "--jsonfile", jsonOut)
+		}
 		args = append(args, "--format", "testname", "--", "-p=1")
 	} else {
 		fmt.Println("Running integration tests using go test...")
 		cmdName = "go"
-		args = append(args, "test", "-p=1", "-v")
+		args = append(args, "test", "-p=1")
+		if jsonOut != "" {
+			args = append(args, "-json")
+		} else {
+			args = append(args, "-v")
+		}
 	}
 
 	// Add test filters if provided
@@ -164,6 +178,17 @@ func runTests() error {
 	cmd = exec.Command(cmdName, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+
+	// gotestsum writes the event stream itself; plain `go test -json` puts it on
+	// stdout, so tee it to the file while still streaming to the console.
+	if jsonOut != "" && !useGotestsum {
+		f, ferr := os.Create(jsonOut)
+		if ferr != nil {
+			return fmt.Errorf("failed to create %s: %w", jsonOut, ferr)
+		}
+		defer f.Close()
+		cmd.Stdout = io.MultiWriter(os.Stdout, f)
+	}
 
 	// Export test-context state so that test subprocesses can self-initialize
 	// via ensureInitialized() without requiring an explicit InitializeTestContext call.

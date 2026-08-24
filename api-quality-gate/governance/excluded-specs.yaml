@@ -1,0 +1,9 @@
+version: 1
+# Specs the quality gate does NOT validate.
+#
+# Everything else in api/ is validated by default, so a newly added spec is gated
+# automatically and escaping requires an explicit entry here. This list may only
+# shrink: onboarding a resource means deleting its line.
+#
+# Currently empty: every spec under api/ is gated.
+excluded: []

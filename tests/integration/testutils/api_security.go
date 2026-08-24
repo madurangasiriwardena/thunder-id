@@ -116,14 +116,35 @@ func isPublicEndpoint(path string) bool {
 // NewHTTPClientWithTokenProvider builds an HTTP client that injects Authorization headers using the provided token
 // provider and skips TLS verification to work with local test servers.
 func NewHTTPClientWithTokenProvider(getToken func() (string, error)) *http.Client {
-	return &http.Client{
-		Transport: &authTransport{
-			base: &http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-			},
-			getToken: getToken,
+	var rt http.RoundTripper = &authTransport{
+		base: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
+		getToken: getToken,
 	}
+	if os.Getenv("CONTRACT_TRACE") != "" {
+		rt = &traceTransport{base: rt}
+	}
+	return &http.Client{Transport: rt}
+}
+
+// traceTransport prints one line per request when CONTRACT_TRACE is set, so a caller
+// can measure which declared responses AND query parameters a run actually exercised.
+// The server access log records only the path, dropping the query string, so
+// `?limit=1` is invisible there; observing at the client keeps it. Off unless asked
+// for, and it prints the request target only, never headers or bodies, so no token or
+// payload is written to the log.
+type traceTransport struct {
+	base http.RoundTripper
+}
+
+func (t *traceTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+	fmt.Printf("CONTRACT_REQ %s %s %d\n", req.Method, req.URL.RequestURI(), resp.StatusCode)
+	return resp, nil
 }
 
 // GetHTTPClientWithToken returns an HTTP client that always uses the provided bearer token.

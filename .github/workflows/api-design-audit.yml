@@ -1,0 +1,142 @@
+# .github/workflows/api-design-audit.yml
+#
+# The pull request gate only judges specs a change touches, so this is the one place
+# the whole API surface is measured. It reports rather than fails: the existing
+# backlog is known debt, and a permanently red scheduled job is one nobody reads.
+# What DOES fail here is the gate going blind, i.e. a spec that cannot be linted.
+#
+# Contract coverage is taken from test EXECUTION, not from the source claiming a
+# test exists, so an operation counts only when its test actually ran and passed.
+# That means this job builds the distribution and boots it, which is why it is
+# scheduled rather than per-commit.
+#
+# Branch protection is administered at the repository level and is out of scope.
+
+name: 📐 API Design Audit
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # daily 06:00 UTC
+  workflow_dispatch: {}
+
+# Gated specs are every api/**/*.yaml except those in
+# api-quality-gate/governance/excluded-specs.yaml (see scripts/list-specs.mjs).
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Install gate tooling
+        working-directory: api-quality-gate
+        run: |
+          npm ci
+          node scripts/validate-exemptions.mjs
+
+      # --- run the contract tests so coverage reflects real outcomes -----------
+      - name: Set up Go environment
+        uses: ./.github/actions/setup-go
+      - name: Install dependencies
+        run: |
+          cd backend && go mod download
+          cd ../tests/integration && go mod download
+      - name: Build distribution
+        run: make build_with_coverage_only OS=$(go env GOOS) ARCH=$(go env GOARCH)
+      - name: Configure test database
+        run: |
+          chmod +x tests/integration/resources/scripts/setup-test-config.sh
+          ./tests/integration/resources/scripts/setup-test-config.sh
+        env:
+          DB_TYPE: sqlite
+      # Not allowed to fail the job: a failing contract test shows up as an operation
+      # that is NOT verified in the table below, which is the report this job exists
+      # to produce. Regressions are blocked on the pull request, not here.
+      - name: Run every contract package
+        continue-on-error: true
+        env:
+          DB_TYPE: sqlite
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/contract-results /tmp/contract-logs
+          for dir in tests/integration/contract/*/; do
+            [ -d "$dir" ] || continue
+            resource="$(basename "$dir")"
+            echo "::group::contract tests: $resource"
+            # CONTRACT_TRACE makes the test client print one line per request, which
+            # is the evidence for which declared responses and query parameters were
+            # actually exercised. Captured per resource, so seeding a user while
+            # testing groups is not credited to the user API.
+            CONTRACT_TRACE=1 \
+            TEST_JSON_OUT="/tmp/contract-results/${resource}.json" \
+              make contract-test CONTRACT_PACKAGE="./contract/${resource}/..." \
+              2>&1 | tee "/tmp/contract-logs/${resource}.log" || true
+            echo "::endgroup::"
+          done
+          cat /tmp/contract-results/*.json > /tmp/contract-results/all.json 2>/dev/null || true
+
+      # --- one table: design issues beside real contract outcomes --------------
+      # Deliberately one step. Two would mean two summary tables that cannot be
+      # joined, and since the lint result decides the exit code, a later step would
+      # be SKIPPED exactly when a spec is unlintable, which is when it matters most.
+      - name: Audit every gated spec
+        working-directory: api-quality-gate
+        run: |
+          set -uo pipefail
+          broken=0
+          : > /tmp/lint-findings.jsonl
+          for spec in $(node scripts/list-specs.mjs); do
+            echo "::group::$spec"
+            # Assigned inside `if`: the step shell is `bash -e`, so a bare assignment
+            # from a spec WITH findings (exit 1) would abort on the first one.
+            if out="$(npx spectral lint "../$spec" -r .spectral.effective.yaml -f json 2>&1)"; then st=0; else st=$?; fi
+            echo "$out"
+            echo "::endgroup::"
+            if [ $st -eq 2 ]; then
+              echo "::error::${spec} could not be linted; the gate is blind to it."
+              node scripts/summarize-findings.mjs --spec "$spec" --unlintable >> /tmp/lint-findings.jsonl
+              broken=1
+              continue
+            fi
+            count() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const m=s.match(/\[[\s\S]*\]/);const a=m?JSON.parse(m[0]):[];console.log(a.filter(f=>f.severity<=1).length)})'; }
+            n="$(count <<<"$out")"
+            # Also lint WITHOUT the waivers. A spec can read 0 issues purely because
+            # every finding is exempted, and reporting that as clean hides the debt the
+            # waivers exist to track.
+            if base_out="$(npx spectral lint "../$spec" -r .spectral.yaml -f json 2>&1)"; then :; else :; fi
+            base_n="$(count <<<"$base_out")"
+            waived=$(( base_n - n ))
+            [ "$waived" -lt 0 ] && waived=0
+            # The findings themselves, not just the count, so the report can list them.
+            node scripts/summarize-findings.mjs --spec "$spec" --waived "$waived" \
+              <<<"$out" >> /tmp/lint-findings.jsonl
+          done
+
+          # Coverage in (operation, status) pairs, observed from what the server
+          # actually served for that resource.
+          : > /tmp/path-coverage.jsonl
+          for spec in $(node scripts/list-specs.mjs); do
+            resource="$(basename "$spec" .yaml)"
+            # Whole object on one line: the summary needs the totals, the collapsed
+            # detail needs perOperation.
+            node scripts/response-path-coverage.mjs \
+              --spec "$spec" --log "/tmp/contract-logs/${resource}.log" --json \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.stringify(JSON.parse(s))))' \
+              >> /tmp/path-coverage.jsonl
+          done
+
+          node scripts/report-test-outcomes.mjs \
+            --results /tmp/contract-results/all.json --json > /tmp/test-outcomes.json
+
+          node scripts/render-audit.mjs \
+            --lint /tmp/lint-findings.jsonl --paths /tmp/path-coverage.jsonl \
+            --tests /tmp/test-outcomes.json \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+          exit $broken
