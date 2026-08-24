@@ -1,0 +1,10 @@
+version: 1
+# Time-boxed waivers. Each entry must be a real, tracked, expiring gap, never a way to
+# permanently silence a rule: the schema requires a justification, an owner, a tracking
+# issue and an `expires` date, and validate-exemptions.mjs fails the build once one
+# lapses. `file` is relative to this directory, so a repo-root spec is ../api/<name>.yaml.
+#
+# Currently empty. api/group.yaml previously waived four rules (per-operation
+# standard errors, filter, sort, Idempotency-Key); those findings are now reported
+# rather than suppressed.
+exemptions: []
