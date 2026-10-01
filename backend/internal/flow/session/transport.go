@@ -51,6 +51,30 @@ func (s staticInbound) HandleFor(flowID string) string {
 	return s.handle
 }
 
+// anyFlowInbound carries a single handle for whichever flow the request resolves to. Offering it for
+// any flow is safe: Resolve rejects a handle whose session belongs to a different flow.
+type anyFlowInbound struct {
+	handle string
+}
+
+// HandleFor returns the carried handle regardless of the flow ID.
+func (a anyFlowInbound) HandleFor(string) string {
+	return a.handle
+}
+
+// chainInbound offers the handles of several sources in priority order.
+type chainInbound []InboundHandle
+
+// HandleFor returns the first non-empty handle any source carries for the flow.
+func (c chainInbound) HandleFor(flowID string) string {
+	for _, ih := range c {
+		if handle := ih.HandleFor(flowID); handle != "" {
+			return handle
+		}
+	}
+	return ""
+}
+
 type inboundCtxKey struct{}
 
 // WithInbound stores the inbound SSO transport inputs on the context for the flow service
@@ -75,6 +99,17 @@ type Exchange struct {
 	Request *http.Request
 	// Response is the HTTP response being built. It is nil for an endpoint that only reads the handle.
 	Response http.ResponseWriter
+	// Body is the SSO handle field of the endpoint's JSON body. It is nil for an endpoint without one.
+	Body *BodyHandle
+}
+
+// BodyHandle is the SSO handle field of an endpoint's JSON body.
+type BodyHandle struct {
+	// In is the handle the client sent in the request body.
+	In string
+	// Out is the handle to return in the response body. Transports set it; the endpoint copies it
+	// into the response before writing the body.
+	Out string
 }
 
 // HandleTransport abstracts how the session handle is read from a request and emitted onto a
@@ -96,9 +131,63 @@ type TransportConfig struct {
 }
 
 // NewHandleTransport creates the HandleTransport every endpoint uses. It is the single place the
-// supported transports are assembled.
+// supported transports are assembled. A handle sent in the JSON body takes precedence over the
+// cookie, and an issued handle is emitted on every transport.
 func NewHandleTransport(cfg TransportConfig) HandleTransport {
-	return newCookieTransport(cfg.SecureCookies)
+	return chainTransport{bodyTransport{}, newCookieTransport(cfg.SecureCookies)}
+}
+
+// chainTransport combines transports. Read prefers earlier transports; Write and Clear reach all.
+type chainTransport []HandleTransport
+
+// Read collects the inbound inputs of every transport, in priority order.
+func (c chainTransport) Read(x *Exchange) InboundHandle {
+	inbound := make(chainInbound, 0, len(c))
+	for _, t := range c {
+		if ih := t.Read(x); ih != nil {
+			inbound = append(inbound, ih)
+		}
+	}
+	return inbound
+}
+
+// Write emits the handle on every transport.
+func (c chainTransport) Write(x *Exchange, flowID, handle string, ttl time.Duration) {
+	for _, t := range c {
+		t.Write(x, flowID, handle, ttl)
+	}
+}
+
+// Clear removes the handle from every transport.
+func (c chainTransport) Clear(x *Exchange, flowID string) {
+	for _, t := range c {
+		t.Clear(x, flowID)
+	}
+}
+
+// bodyTransport carries the handle in the endpoint's JSON body.
+type bodyTransport struct{}
+
+// Read returns the handle sent in the request body, or nil when none was sent.
+func (bodyTransport) Read(x *Exchange) InboundHandle {
+	if x.Body == nil || x.Body.In == "" {
+		return nil
+	}
+	return anyFlowInbound{handle: x.Body.In}
+}
+
+// Write sets the handle to return in the response body.
+func (bodyTransport) Write(x *Exchange, _, handle string, _ time.Duration) {
+	if x.Body != nil {
+		x.Body.Out = handle
+	}
+}
+
+// Clear drops any handle set for the response body. The client discards its copy on its own.
+func (bodyTransport) Clear(x *Exchange, _ string) {
+	if x.Body != nil {
+		x.Body.Out = ""
+	}
 }
 
 // cookieTransport carries the handle as an HTTP cookie.

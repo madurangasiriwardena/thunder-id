@@ -272,6 +272,7 @@ type FlowResponse struct {
 	Assertion      string                  `json:"assertion,omitempty"`
 	ErrorAssertion string                  `json:"errorAssertion,omitempty"`
 	Error          *apierror.ErrorResponse `json:"error,omitempty"`
+	SSOHandle      string                  `json:"ssoHandle,omitempty"`
 }
 
 // FlowRequest represents the flow execution API request body
@@ -284,6 +285,7 @@ type FlowRequest struct {
 	ChallengeToken string            `json:"challengeToken,omitempty"`
 	Action         string            `json:"action"`
 	Inputs         map[string]string `json:"inputs"`
+	SSOHandle      string            `json:"ssoHandle,omitempty"`
 }
 
 // FlowInitContext represents the context for initiating a new flow with runtime data

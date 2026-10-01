@@ -58,7 +58,11 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 
 	// Read the inbound SSO transport inputs and make them available to the flow service, which
 	// selects the handle once the flow is known.
-	ssoExchange := &session.Exchange{Request: r, Response: w}
+	ssoExchange := &session.Exchange{
+		Request:  r,
+		Response: w,
+		Body:     &session.BodyHandle{In: sysutils.SanitizeString(flowR.SSOHandle)},
+	}
 	ctx := session.WithInbound(r.Context(), h.ssoTransport.Read(ssoExchange))
 
 	var flowStep *FlowStep
@@ -110,6 +114,7 @@ func (h *flowExecutionHandler) HandleFlowExecutionRequest(w http.ResponseWriter,
 		ErrorAssertion: flowStep.ErrorAssertion,
 		Error:          stepErrorResp,
 		ChallengeToken: flowStep.ChallengeToken,
+		SSOHandle:      ssoExchange.Body.Out,
 	}
 
 	sysutils.WriteSuccessResponse(r.Context(), w, http.StatusOK, flowResp)

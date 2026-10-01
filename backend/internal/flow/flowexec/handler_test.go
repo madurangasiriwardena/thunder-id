@@ -234,7 +234,75 @@ func (s *HandlerTestSuite) TestHandleFlowExecutionRequest_WritesSSOHandleCookie(
 	s.Positive(ssoCookie.MaxAge, "cookie TTL must be non-zero")
 	s.True(ssoCookie.Secure)
 	s.True(ssoCookie.HttpOnly)
-	s.NotContains(w.Body.String(), "minted-handle", "the handle must never appear in the response body")
+
+	var resp FlowResponse
+	s.Require().NoError(json.Unmarshal(w.Body.Bytes(), &resp))
+	s.Equal("minted-handle", resp.SSOHandle, "the issued handle must also be returned in the response body")
+}
+
+// TestHandleFlowExecutionRequest_PropagatesBodySSOHandle verifies a handle sent in the ssoHandle request
+// field is attached to the service context for whichever flow the execution resolves to.
+func (s *HandlerTestSuite) TestHandleFlowExecutionRequest_PropagatesBodySSOHandle() {
+	t := s.T()
+	mockSvc := NewFlowExecServiceInterfaceMock(t)
+
+	var gotInbound session.InboundHandle
+	var gotOK bool
+	mockSvc.EXPECT().ExecuteByID(mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything).
+		Run(func(ctx context.Context, _ string, _ string, _ bool, _ string, _ map[string]string, _ string) {
+			gotInbound, gotOK = session.InboundFrom(ctx)
+		}).
+		Return(&FlowStep{ExecutionID: "exec-1", Status: providers.FlowStatusIncomplete},
+			(*tidcommon.ServiceError)(nil))
+
+	h := newFlowExecutionHandler(mockSvc, session.NewHandleTransport(session.TransportConfig{SecureCookies: false}), 0)
+	req := httptest.NewRequest(http.MethodPost, "/flow/execute",
+		bytes.NewBufferString(`{"flowId":"flow-1","executionId":"exec-1","ssoHandle":"body-handle"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	h.HandleFlowExecutionRequest(w, req)
+
+	s.Equal(http.StatusOK, w.Code)
+	s.Require().True(gotOK, "the body handle must be propagated onto the service context")
+	s.Equal("body-handle", gotInbound.HandleFor("flow-1"))
+	s.Equal("body-handle", gotInbound.HandleFor("other-flow"))
+}
+
+// TestHandleFlowExecutionRequest_BodySSOHandleWinsOverCookie verifies the ssoHandle request field takes
+// precedence over the per-flow SSO cookie when both are present.
+func (s *HandlerTestSuite) TestHandleFlowExecutionRequest_BodySSOHandleWinsOverCookie() {
+	t := s.T()
+	mockSvc := NewFlowExecServiceInterfaceMock(t)
+
+	var gotInbound session.InboundHandle
+	mockSvc.EXPECT().Execute(mock.Anything, mock.Anything, mock.Anything, mock.Anything,
+		mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Run(func(ctx context.Context, _ string, _ string, _ string, _ bool, _ string,
+			_ map[string]string, _ string, _ string, _ string) {
+			gotInbound, _ = session.InboundFrom(ctx)
+		}).
+		Return(&FlowStep{ExecutionID: "exec-1", Status: providers.FlowStatusIncomplete},
+			(*tidcommon.ServiceError)(nil))
+
+	transport := session.NewHandleTransport(session.TransportConfig{SecureCookies: false})
+	h := newFlowExecutionHandler(mockSvc, transport, 0)
+	req := httptest.NewRequest(http.MethodPost, "/flow/execute", bytes.NewBufferString(
+		`{"applicationId":"app-1","flowType":"AUTHENTICATION","action":"submit","ssoHandle":"body-handle"}`))
+	req.Header.Set("Content-Type", "application/json")
+	issued := httptest.NewRecorder()
+	transport.Write(&session.Exchange{Response: issued}, "flow-1", "cookie-handle", time.Hour)
+	for _, ck := range issued.Result().Cookies() {
+		req.AddCookie(ck)
+	}
+	w := httptest.NewRecorder()
+
+	h.HandleFlowExecutionRequest(w, req)
+
+	s.Equal(http.StatusOK, w.Code)
+	s.Require().NotNil(gotInbound)
+	s.Equal("body-handle", gotInbound.HandleFor("flow-1"))
 }
 
 // TestHandleFlowExecutionRequest_ClearsSSOHandleCookie verifies a terminated session expires the
@@ -264,6 +332,7 @@ func (s *HandlerTestSuite) TestHandleFlowExecutionRequest_ClearsSSOHandleCookie(
 	s.Require().Len(cookies, 1, "expected the per-flow SSO handle cookie to be cleared")
 	s.Equal(-1, cookies[0].MaxAge)
 	s.Equal("", cookies[0].Value)
+	s.NotContains(w.Body.String(), "ssoHandle", "no handle is returned when none was issued")
 
 	// The cleared cookie must carry the same name the transport issues for the flow.
 	issued := httptest.NewRecorder()

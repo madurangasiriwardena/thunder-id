@@ -154,17 +154,82 @@ func (s *TransportTestSuite) TestCookieTransport_RoundTrip() {
 	s.Equal("", ih.HandleFor("flow-2"))
 }
 
-func (s *TransportTestSuite) TestNewHandleTransport_UsesConfig() {
-	for _, secure := range []bool{true, false} {
-		transport := NewHandleTransport(TransportConfig{SecureCookies: secure})
-		w := httptest.NewRecorder()
+func (s *TransportTestSuite) TestBodyTransport_Read() {
+	transport := bodyTransport{}
 
-		transport.Write(&Exchange{Response: w}, "flow-1", "handle-1", time.Hour)
+	ih := transport.Read(&Exchange{Body: &BodyHandle{In: "handle-1"}})
+	s.Require().NotNil(ih)
+	s.Equal("handle-1", ih.HandleFor("flow-1"))
+	s.Equal("handle-1", ih.HandleFor("flow-2"), "a body handle is offered for whichever flow resolves")
 
-		cookies := w.Result().Cookies()
-		s.Require().Len(cookies, 1)
-		s.Equal(flow1CookieName, cookies[0].Name)
-		s.Equal(secure, cookies[0].Secure, "SecureCookies must reach the cookie")
-		s.Equal("handle-1", transport.Read(&Exchange{Request: cookieRequest(cookies...)}).HandleFor("flow-1"))
-	}
+	s.Nil(transport.Read(&Exchange{Body: &BodyHandle{}}), "an empty body field carries no handle")
+	s.Nil(transport.Read(&Exchange{}), "an endpoint without a body field carries no handle")
+}
+
+func (s *TransportTestSuite) TestBodyTransport_WriteAndClear() {
+	transport := bodyTransport{}
+	body := &BodyHandle{}
+
+	transport.Write(&Exchange{Body: body}, "flow-1", "handle-1", time.Hour)
+	s.Equal("handle-1", body.Out)
+
+	transport.Clear(&Exchange{Body: body}, "flow-1")
+	s.Equal("", body.Out)
+
+	s.NotPanics(func() {
+		transport.Write(&Exchange{}, "flow-1", "handle-1", time.Hour)
+		transport.Clear(&Exchange{}, "flow-1")
+	}, "an endpoint without a body field must be safe to write to")
+}
+
+func (s *TransportTestSuite) TestHandleTransport_BodyWinsOverCookie() {
+	transport := NewHandleTransport(TransportConfig{})
+
+	ih := transport.Read(&Exchange{
+		Request: cookieRequest(&http.Cookie{Name: flow1CookieName, Value: "cookie-handle"}),
+		Body:    &BodyHandle{In: "body-handle"},
+	})
+
+	s.Equal("body-handle", ih.HandleFor("flow-1"))
+}
+
+func (s *TransportTestSuite) TestHandleTransport_FallsBackToCookie() {
+	transport := NewHandleTransport(TransportConfig{})
+
+	ih := transport.Read(&Exchange{
+		Request: cookieRequest(&http.Cookie{Name: flow1CookieName, Value: "cookie-handle"}),
+		Body:    &BodyHandle{},
+	})
+
+	s.Equal("cookie-handle", ih.HandleFor("flow-1"))
+	s.Equal("", ih.HandleFor("flow-2"))
+}
+
+func (s *TransportTestSuite) TestHandleTransport_WriteReachesEveryTransport() {
+	transport := NewHandleTransport(TransportConfig{SecureCookies: true})
+	w := httptest.NewRecorder()
+	x := &Exchange{Response: w, Body: &BodyHandle{}}
+
+	transport.Write(x, "flow-1", "handle-1", time.Hour)
+
+	s.Equal("handle-1", x.Body.Out)
+	cookies := w.Result().Cookies()
+	s.Require().Len(cookies, 1)
+	s.Equal(flow1CookieName, cookies[0].Name)
+	s.Equal("handle-1", cookies[0].Value)
+	s.True(cookies[0].Secure, "SecureCookies must reach the cookie transport")
+}
+
+func (s *TransportTestSuite) TestHandleTransport_ClearReachesEveryTransport() {
+	transport := NewHandleTransport(TransportConfig{})
+	w := httptest.NewRecorder()
+	x := &Exchange{Response: w, Body: &BodyHandle{Out: "handle-1"}}
+
+	transport.Clear(x, "flow-1")
+
+	s.Equal("", x.Body.Out)
+	cookies := w.Result().Cookies()
+	s.Require().Len(cookies, 1)
+	s.Equal(flow1CookieName, cookies[0].Name)
+	s.Equal(-1, cookies[0].MaxAge)
 }

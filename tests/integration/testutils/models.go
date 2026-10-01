@@ -396,6 +396,7 @@ type FlowStep struct {
 	ErrorAssertion string              `json:"errorAssertion,omitempty"`
 	Error          *FlowExecutionError `json:"error,omitempty"`
 	ChallengeToken string              `json:"challengeToken,omitempty"`
+	SSOHandle      string              `json:"ssoHandle,omitempty"`
 }
 
 // FlowErrorResponse is the body returned when flow execution fails at the engine level (4xx/5xx),
