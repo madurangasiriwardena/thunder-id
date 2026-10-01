@@ -309,6 +309,12 @@ components:
           type: boolean
           description: When true, the response includes full UI metadata (meta/components) for prompt nodes
           example: false
+        ssoHandle:
+          type: string
+          description: >-
+            SSO session handle returned in an earlier flow response. When present, it is used instead
+            of the SSO cookie to find an existing session for the flow.
+          example: "f3a9c2e1d0b8a7f6e5d4c3b2a1f0e9d8"
 
     AdministrativeFlowRequest:
       type: object
@@ -374,6 +380,12 @@ components:
           type: boolean
           description: When true, the response includes full UI metadata (meta/components) for prompt nodes
           example: false
+        ssoHandle:
+          type: string
+          description: >-
+            SSO session handle returned in an earlier flow response. When present, it is used instead
+            of the SSO cookie to find an existing session for the flow.
+          example: "f3a9c2e1d0b8a7f6e5d4c3b2a1f0e9d8"
 
     IncompleteFlowResponse:
       type: object
@@ -431,6 +443,12 @@ components:
           type: string
           description: Authentication assertion. This will be the JWT authentication token
           example: "<jwt_token>"
+        ssoHandle:
+          type: string
+          description: >-
+            SSO session handle issued when the flow established a session. It is also set as the SSO
+            cookie. Send it back in the ssoHandle request field to reuse the session without the cookie.
+          example: "f3a9c2e1d0b8a7f6e5d4c3b2a1f0e9d8"
 
     ErrorFlowResponse:
       type: object

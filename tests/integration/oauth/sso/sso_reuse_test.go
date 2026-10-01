@@ -56,3 +56,56 @@ func (ts *SSOLogoutTestSuite) TestSSOReuse_ScopesPermissionsToRequestedResourceS
 	ts.Require().NotContains(ts.tokenScopes(tokenB.AccessToken), "read",
 		"read must not leak from resource server A to B across SSO reuse")
 }
+
+// TestSSOSessionReuseWithBodyHandle verifies the SSO handle returned in the flow response can be sent
+// back in the ssoHandle request field instead of the cookie. A second client with an empty cookie jar
+// presents only the body handle, and SSO_CHECK still finds the session and skips the credential prompt.
+func (ts *SSOLogoutTestSuite) TestSSOSessionReuseWithBodyHandle() {
+	handle := ts.loginForBodyHandle("body_handle_state_1")
+
+	cookieless := ts.newSessionClient()
+	_, executionID := ts.authorize(cookieless, "openid", "body_handle_state_2")
+	step := ts.flowExecute(cookieless, map[string]interface{}{
+		"executionId": executionID,
+		"ssoHandle":   handle,
+	})
+
+	ts.Equal("COMPLETE", step.FlowStatus, "a body handle should satisfy SSO without a cookie")
+	ts.NotEmpty(step.Assertion, "SSO-skipped flow should still yield an assertion")
+	ts.Empty(ts.ssoCookieNames(cookieless), "reusing a session must not issue a new SSO cookie")
+}
+
+// TestSSOSessionReuseWithInvalidBodyHandle verifies an unknown body handle does not satisfy SSO: the
+// flow falls through to the credential prompt.
+func (ts *SSOLogoutTestSuite) TestSSOSessionReuseWithInvalidBodyHandle() {
+	cookieless := ts.newSessionClient()
+	_, executionID := ts.authorize(cookieless, "openid", "body_handle_invalid_state")
+	step := ts.flowExecute(cookieless, map[string]interface{}{
+		"executionId": executionID,
+		"ssoHandle":   "not-a-real-handle",
+	})
+
+	ts.NotEqual("COMPLETE", step.FlowStatus, "an unknown body handle must not skip authentication")
+}
+
+// loginForBodyHandle drives a first-time credential login and returns the SSO handle from the
+// completing flow response. It also checks the cookie is still set alongside the body handle.
+func (ts *SSOLogoutTestSuite) loginForBodyHandle(state string) string {
+	client := ts.newSessionClient()
+	_, executionID := ts.authorize(client, "openid", state)
+
+	initial := ts.flowExecute(client, map[string]interface{}{"executionId": executionID})
+	ts.Require().NotEqual("COMPLETE", initial.FlowStatus, "first login must prompt for credentials")
+	ts.Require().Empty(initial.SSOHandle, "no handle is returned before a session is established")
+
+	step := ts.flowExecute(client, map[string]interface{}{
+		"executionId":    executionID,
+		"inputs":         map[string]string{"username": ssoReuseUsername, "password": testPassword},
+		"action":         "action_001",
+		"challengeToken": initial.ChallengeToken,
+	})
+	ts.Require().Equal("COMPLETE", step.FlowStatus, "credential login should complete the flow")
+	ts.Require().NotEmpty(step.SSOHandle, "the completing response should return the SSO handle")
+	ts.Require().NotEmpty(ts.ssoCookieNames(client), "the SSO cookie should still be set")
+	return step.SSOHandle
+}
